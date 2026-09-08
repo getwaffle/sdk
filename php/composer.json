@@ -1,0 +1,33 @@
+{
+    "name": "paybridge/sdk",
+    "description": "PHP SDK for the Paybridge merchant API (:8080)",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["paybridge", "payments", "sdk"],
+    "require": {
+        "php": ">=8.1",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Paybridge\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Paybridge\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable"
+}
