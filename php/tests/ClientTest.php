@@ -116,6 +116,86 @@ final class ClientTest extends TestCase
         self::assertNull($charge->metadata);
     }
 
+    public function testCreateChargeSendsChannelAndVaBankAndMapsQrVaFields(): void
+    {
+        $responseBody = json_encode([
+            'id' => 'charge-va-1',
+            'provider' => 'xendit',
+            'mode' => 'sandbox',
+            'status' => 'pending',
+            'gross_amount' => 75000,
+            'fee_amount' => 2000,
+            'net_amount' => 73000,
+            'currency' => 'IDR',
+            'channel' => 'virtual_account',
+            'va_bank' => 'BCA',
+            'va_number' => '8808123456789',
+            'created_at' => '2026-09-08T01:00:00Z',
+        ], JSON_THROW_ON_ERROR);
+        $transport = new FakeTransport(new TransportResponse(201, $responseBody));
+        $client = new Client(self::API_KEY, self::BASE_URL, $transport);
+
+        $charge = $client->createCharge(
+            new CreateChargeParams(
+                amount: 75000,
+                currency: 'IDR',
+                channel: 'virtual_account',
+                vaBank: 'BCA',
+            ),
+            'idem-key-va-1',
+        );
+
+        $sentBody = json_decode((string) $transport->lastBody, true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame([
+            'amount' => 75000,
+            'currency' => 'IDR',
+            'channel' => 'virtual_account',
+            'va_bank' => 'BCA',
+        ], $sentBody);
+
+        self::assertSame('virtual_account', $charge->channel);
+        self::assertSame('BCA', $charge->vaBank);
+        self::assertSame('8808123456789', $charge->vaNumber);
+        self::assertNull($charge->qrString);
+        self::assertNull($charge->checkoutUrl);
+    }
+
+    public function testCreateChargeMapsQrStringForQrisChannel(): void
+    {
+        $responseBody = json_encode([
+            'id' => 'charge-qris-1',
+            'provider' => 'doku',
+            'mode' => 'sandbox',
+            'status' => 'pending',
+            'gross_amount' => 15000,
+            'fee_amount' => 500,
+            'net_amount' => 14500,
+            'currency' => 'IDR',
+            'channel' => 'qris',
+            'qr_string' => '00020101021226610014ID.CO.QRIS.WWW',
+            'created_at' => '2026-09-08T01:00:00Z',
+        ], JSON_THROW_ON_ERROR);
+        $transport = new FakeTransport(new TransportResponse(201, $responseBody));
+        $client = new Client(self::API_KEY, self::BASE_URL, $transport);
+
+        $charge = $client->createCharge(
+            new CreateChargeParams(amount: 15000, currency: 'IDR', channel: 'qris'),
+            'idem-key-qris-1',
+        );
+
+        $sentBody = json_decode((string) $transport->lastBody, true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame([
+            'amount' => 15000,
+            'currency' => 'IDR',
+            'channel' => 'qris',
+        ], $sentBody);
+
+        self::assertSame('qris', $charge->channel);
+        self::assertSame('00020101021226610014ID.CO.QRIS.WWW', $charge->qrString);
+        self::assertNull($charge->vaBank);
+        self::assertNull($charge->vaNumber);
+    }
+
     public function testCreateChargeRequiresIdempotencyKey(): void
     {
         $client = new Client(self::API_KEY, self::BASE_URL, new FakeTransport(new TransportResponse(201, '{}')));

@@ -122,6 +122,102 @@ func TestCreateCharge(t *testing.T) {
 	}
 }
 
+func TestCreateChargeWithChannel(t *testing.T) {
+	var gotBody map[string]any
+	c, _ := newTestClient(t, "sk_test_123", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		resp := Charge{
+			ID:          "chg_va_1",
+			Provider:    "xendit",
+			Mode:        "sandbox",
+			Status:      "pending",
+			GrossAmount: 75000,
+			FeeAmount:   2000,
+			NetAmount:   73000,
+			Currency:    "IDR",
+			Channel:     "virtual_account",
+			VABank:      "BCA",
+			VANumber:    "8808123456789",
+			CreatedAt:   "2026-09-08T01:00:00Z",
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+
+	charge, err := c.CreateCharge(context.Background(), CreateChargeParams{
+		Amount:   75000,
+		Currency: "IDR",
+		Channel:  "virtual_account",
+		VABank:   "BCA",
+	}, "idem-key-va-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotBody["channel"] != "virtual_account" {
+		t.Errorf("body channel = %v, want %q", gotBody["channel"], "virtual_account")
+	}
+	if gotBody["va_bank"] != "BCA" {
+		t.Errorf("body va_bank = %v, want %q", gotBody["va_bank"], "BCA")
+	}
+	if _, ok := gotBody["qr_string"]; ok {
+		t.Errorf("expected qr_string omitted from request body, got %v", gotBody["qr_string"])
+	}
+
+	if charge.Channel != "virtual_account" {
+		t.Errorf("Channel = %q, want %q", charge.Channel, "virtual_account")
+	}
+	if charge.VABank != "BCA" {
+		t.Errorf("VABank = %q, want %q", charge.VABank, "BCA")
+	}
+	if charge.VANumber != "8808123456789" {
+		t.Errorf("VANumber = %q, want %q", charge.VANumber, "8808123456789")
+	}
+	if charge.CheckoutURL != "" {
+		t.Errorf("CheckoutURL = %q, want empty for channel checkout", charge.CheckoutURL)
+	}
+}
+
+func TestCreateChargeQRISResponseDeserialization(t *testing.T) {
+	c, _ := newTestClient(t, "sk_test_123", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{
+			"id": "chg_qris_1",
+			"provider": "doku",
+			"mode": "sandbox",
+			"status": "pending",
+			"gross_amount": 15000,
+			"fee_amount": 500,
+			"net_amount": 14500,
+			"currency": "IDR",
+			"channel": "qris",
+			"qr_string": "00020101021226610014ID.CO.QRIS.WWW",
+			"created_at": "2026-09-08T01:00:00Z"
+		}`))
+	})
+
+	charge, err := c.CreateCharge(context.Background(), CreateChargeParams{
+		Amount:   15000,
+		Currency: "IDR",
+		Channel:  "qris",
+	}, "idem-key-qris-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if charge.Channel != "qris" {
+		t.Errorf("Channel = %q, want %q", charge.Channel, "qris")
+	}
+	if charge.QRString != "00020101021226610014ID.CO.QRIS.WWW" {
+		t.Errorf("QRString = %q, want the QRIS payload", charge.QRString)
+	}
+	if charge.VABank != "" || charge.VANumber != "" {
+		t.Errorf("VABank/VANumber = %q/%q, want empty for QRIS channel", charge.VABank, charge.VANumber)
+	}
+}
+
 func TestCalculateFee(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotBody map[string]any

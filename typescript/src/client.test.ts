@@ -112,6 +112,86 @@ describe("PaybridgeClient", () => {
     expect(body).not.toHaveProperty("provider");
   });
 
+  it("sends channel and vaBank in createCharge body and maps qr/va response fields", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, {
+        id: "charge-va-1",
+        provider: "xendit",
+        mode: "sandbox",
+        status: "pending",
+        gross_amount: 75000,
+        fee_amount: 2000,
+        net_amount: 73000,
+        currency: "IDR",
+        channel: "virtual_account",
+        va_bank: "BCA",
+        va_number: "8808123456789",
+        created_at: "2026-09-08T01:00:00Z",
+      }),
+    );
+
+    const charge = await client.createCharge(
+      { amount: 75000, currency: "IDR", channel: "virtual_account", vaBank: "BCA" },
+      "idem-key-va-1",
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      amount: 75000,
+      currency: "IDR",
+      channel: "virtual_account",
+      va_bank: "BCA",
+    });
+
+    expect(charge).toEqual({
+      id: "charge-va-1",
+      provider: "xendit",
+      mode: "sandbox",
+      status: "pending",
+      grossAmount: 75000,
+      feeAmount: 2000,
+      netAmount: 73000,
+      currency: "IDR",
+      channel: "virtual_account",
+      vaBank: "BCA",
+      vaNumber: "8808123456789",
+      createdAt: "2026-09-08T01:00:00Z",
+    });
+  });
+
+  it("maps qr_string in createCharge response for the qris channel", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, {
+        id: "charge-qris-1",
+        provider: "doku",
+        mode: "sandbox",
+        status: "pending",
+        gross_amount: 15000,
+        fee_amount: 500,
+        net_amount: 14500,
+        currency: "IDR",
+        channel: "qris",
+        qr_string: "00020101021226610014ID.CO.QRIS.WWW",
+        created_at: "2026-09-08T01:00:00Z",
+      }),
+    );
+
+    const charge = await client.createCharge(
+      { amount: 15000, currency: "IDR", channel: "qris" },
+      "idem-key-qris-1",
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      amount: 15000,
+      currency: "IDR",
+      channel: "qris",
+    });
+    expect(charge.qrString).toBe("00020101021226610014ID.CO.QRIS.WWW");
+    expect(charge.vaBank).toBeUndefined();
+    expect(charge.vaNumber).toBeUndefined();
+  });
+
   it("sends a correctly shaped calculateFee request with required provider", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, {

@@ -230,12 +230,19 @@ func (c *Client) Healthz(ctx context.Context) error {
 type CreateChargeParams struct {
 	// Provider is optional. Zero value (empty string) means "omit from
 	// the request body, let the server auto-route."
-	Provider         string            `json:"provider,omitempty"`
-	Amount           int64             `json:"amount"`
-	Currency         string            `json:"currency"`
-	Description      string            `json:"description,omitempty"`
-	CustomerRef      string            `json:"customer_ref,omitempty"`
-	ReturnURL        string            `json:"return_url,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Amount      int64  `json:"amount"`
+	Currency    string `json:"currency"`
+	Description string `json:"description,omitempty"`
+	CustomerRef string `json:"customer_ref,omitempty"`
+	ReturnURL   string `json:"return_url,omitempty"`
+	// Channel selects a specific payment channel instead of the default
+	// redirect-based checkout flow. Accepted values are "qris" and
+	// "virtual_account"; leave it as the empty string for the original
+	// redirect-only behavior (a CheckoutURL is returned). VABank is
+	// required only when Channel is "virtual_account".
+	Channel          string            `json:"channel,omitempty"`
+	VABank           string            `json:"va_bank,omitempty"`
 	ExpiresInMinutes int               `json:"expires_in_minutes,omitempty"`
 	Metadata         map[string]string `json:"metadata,omitempty"`
 }
@@ -243,17 +250,29 @@ type CreateChargeParams struct {
 // Charge is the response shape for CreateCharge (POST /v1/charges,
 // 201). Status is one of "pending", "paid", "failed", "expired".
 type Charge struct {
-	ID          string            `json:"id"`
-	Provider    string            `json:"provider"`
-	Mode        string            `json:"mode"`
-	Status      string            `json:"status"`
-	GrossAmount int64             `json:"gross_amount"`
-	FeeAmount   int64             `json:"fee_amount"`
-	NetAmount   int64             `json:"net_amount"`
-	Currency    string            `json:"currency"`
-	CheckoutURL string            `json:"checkout_url,omitempty"`
-	CreatedAt   string            `json:"created_at"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	ID          string `json:"id"`
+	Provider    string `json:"provider"`
+	Mode        string `json:"mode"`
+	Status      string `json:"status"`
+	GrossAmount int64  `json:"gross_amount"`
+	FeeAmount   int64  `json:"fee_amount"`
+	NetAmount   int64  `json:"net_amount"`
+	Currency    string `json:"currency"`
+	// Channel echoes the request's Channel, empty when the default
+	// redirect flow was used.
+	Channel string `json:"channel,omitempty"`
+	// CheckoutURL is present for the default redirect flow (Channel
+	// empty); empty when a channel was requested.
+	CheckoutURL string `json:"checkout_url,omitempty"`
+	// QRString is the raw QRIS payload string, present only when Channel
+	// was "qris".
+	QRString string `json:"qr_string,omitempty"`
+	// VABank and VANumber are present only when Channel was
+	// "virtual_account".
+	VABank    string            `json:"va_bank,omitempty"`
+	VANumber  string            `json:"va_number,omitempty"`
+	CreatedAt string            `json:"created_at"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
 // CreateCharge calls POST /v1/charges. idempotencyKey is required (sent as

@@ -13,6 +13,12 @@ namespace Paybridge\Dto;
  * the response reports which one was picked. This is NOT symmetric with
  * {@see CalculateFeeParams} or {@see CreatePayoutParams}, where `provider`
  * is required — do not assume the two endpoints behave alike.
+ *
+ * `channel` selects a specific payment channel instead of the default
+ * redirect-based checkout flow. Accepted values are `"qris"` and
+ * `"virtual_account"`; leave it `null` for the original redirect-only
+ * behavior (a `checkoutUrl` is returned). `vaBank` is required only when
+ * `channel` is `"virtual_account"`.
  */
 final class CreateChargeParams implements \JsonSerializable
 {
@@ -29,6 +35,8 @@ final class CreateChargeParams implements \JsonSerializable
         public readonly ?string $returnUrl = null,
         public readonly ?int $expiresInMinutes = null,
         public readonly ?array $metadata = null,
+        public readonly ?string $channel = null,
+        public readonly ?string $vaBank = null,
     ) {
     }
 
@@ -53,6 +61,12 @@ final class CreateChargeParams implements \JsonSerializable
         }
         if ($this->expiresInMinutes !== null) {
             $body['expires_in_minutes'] = $this->expiresInMinutes;
+        }
+        if ($this->channel !== null) {
+            $body['channel'] = $this->channel;
+        }
+        if ($this->vaBank !== null) {
+            $body['va_bank'] = $this->vaBank;
         }
         if ($this->metadata !== null) {
             $body['metadata'] = $this->metadata;

@@ -10,6 +10,14 @@ export type Currency = "IDR" | (string & {});
 
 export type ChargeStatus = "pending" | "paid" | "failed" | "expired";
 
+/**
+ * Payment channel selecting a specific in-app payment method instead of
+ * the default redirect-based checkout flow. The server currently defines
+ * exactly these two values, so — unlike {@link Provider} — this stays a
+ * closed union; add a value here when the server adds a channel.
+ */
+export type Channel = "qris" | "virtual_account";
+
 export type PayoutStatus =
   | "pending"
   | "processing"
@@ -33,6 +41,15 @@ export interface CreateChargeParams {
   description?: string;
   customerRef?: string;
   returnUrl?: string;
+  /**
+   * Selects a specific payment channel instead of the default
+   * redirect-based checkout flow. Omit for the original redirect-only
+   * behavior (a `checkoutUrl` is returned). `vaBank` is required only
+   * when `channel` is `"virtual_account"`.
+   */
+  channel?: Channel;
+  /** Bank code (e.g. `"BCA"`, `"MANDIRI"`); required only when `channel` is `"virtual_account"`. */
+  vaBank?: string;
   expiresInMinutes?: number;
   metadata?: Record<string, string>;
 }
@@ -47,8 +64,16 @@ export interface Charge {
   feeAmount: number;
   netAmount: number;
   currency: Currency;
+  /** Echoes the request's `channel`, omitted when the default redirect flow was used. */
+  channel?: Channel;
   /** Omitted by the server when empty. */
   checkoutUrl?: string;
+  /** Raw QRIS payload string. Present only when `channel` was `"qris"`. */
+  qrString?: string;
+  /** Present only when `channel` was `"virtual_account"`. */
+  vaBank?: string;
+  /** Present only when `channel` was `"virtual_account"`. */
+  vaNumber?: string;
   createdAt: string;
   /** Omitted by the server when empty. */
   metadata?: Record<string, string>;

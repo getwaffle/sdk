@@ -37,7 +37,11 @@ interface RawChargeResponse {
   fee_amount: number;
   net_amount: number;
   currency: string;
+  channel?: "qris" | "virtual_account";
   checkout_url?: string;
+  qr_string?: string;
+  va_bank?: string;
+  va_number?: string;
   created_at: string;
   metadata?: Record<string, string>;
 }
@@ -118,6 +122,8 @@ export class PaybridgeClient {
     if (params.description !== undefined) body["description"] = params.description;
     if (params.customerRef !== undefined) body["customer_ref"] = params.customerRef;
     if (params.returnUrl !== undefined) body["return_url"] = params.returnUrl;
+    if (params.channel !== undefined) body["channel"] = params.channel;
+    if (params.vaBank !== undefined) body["va_bank"] = params.vaBank;
     if (params.expiresInMinutes !== undefined) {
       body["expires_in_minutes"] = params.expiresInMinutes;
     }
@@ -136,7 +142,11 @@ export class PaybridgeClient {
       feeAmount: raw.fee_amount,
       netAmount: raw.net_amount,
       currency: raw.currency,
+      ...(raw.channel !== undefined ? { channel: raw.channel } : {}),
       ...(raw.checkout_url !== undefined ? { checkoutUrl: raw.checkout_url } : {}),
+      ...(raw.qr_string !== undefined ? { qrString: raw.qr_string } : {}),
+      ...(raw.va_bank !== undefined ? { vaBank: raw.va_bank } : {}),
+      ...(raw.va_number !== undefined ? { vaNumber: raw.va_number } : {}),
       createdAt: raw.created_at,
       ...(raw.metadata !== undefined ? { metadata: raw.metadata } : {}),
     };
