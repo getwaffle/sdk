@@ -57,13 +57,14 @@ interface RawBankAccountResponse {
   bank_code: string;
   account_number: string;
   account_holder_name: string;
+  created_at?: string;
 }
 
 interface RawPayoutResponse {
   id: string;
   bank_account_id: string;
   mode: "live" | "sandbox";
-  status: "pending" | "processing" | "completed" | "failed";
+  status: "pending" | "held" | "processing" | "completed" | "failed";
   amount: number;
   currency: string;
   failure_reason?: string;
@@ -174,7 +175,12 @@ export class PaybridgeClient {
     };
   }
 
-  /** `POST /v1/bank-accounts`. All three fields are required. */
+  /**
+   * `POST /v1/bank-accounts`. All three fields are required.
+   * Registering a new account disables any prior active one for the
+   * caller's mode — only one active withdrawal destination per mode at
+   * a time.
+   */
   async registerBankAccount(
     params: RegisterBankAccountParams,
   ): Promise<BankAccount> {
@@ -194,6 +200,28 @@ export class PaybridgeClient {
       bankCode: raw.bank_code,
       accountNumber: raw.account_number,
       accountHolderName: raw.account_holder_name,
+      ...(raw.created_at !== undefined ? { createdAt: raw.created_at } : {}),
+    };
+  }
+
+  /**
+   * `GET /v1/bank-accounts`. Returns the caller's current active
+   * withdrawal account for their mode. Throws a {@link PaybridgeError}
+   * with status 404 if the merchant has never registered one for this
+   * mode.
+   */
+  async getActiveBankAccount(): Promise<BankAccount> {
+    const raw = await this.requestJson<RawBankAccountResponse>(
+      "GET",
+      "/v1/bank-accounts",
+      {},
+    );
+    return {
+      id: raw.id,
+      bankCode: raw.bank_code,
+      accountNumber: raw.account_number,
+      accountHolderName: raw.account_holder_name,
+      ...(raw.created_at !== undefined ? { createdAt: raw.created_at } : {}),
     };
   }
 

@@ -108,10 +108,29 @@ final class Client
         return FeeQuote::fromArray($data);
     }
 
-    /** POST /v1/bank-accounts. All three fields on `$params` are required. */
+    /**
+     * POST /v1/bank-accounts. All three fields on `$params` are required.
+     * Registering a new account disables any prior active one for the
+     * caller's mode — only one active withdrawal destination per mode at
+     * a time.
+     */
     public function registerBankAccount(RegisterBankAccountParams $params): BankAccount
     {
         $data = $this->request('POST', '/v1/bank-accounts', $params->toArray());
+
+        return BankAccount::fromArray($data);
+    }
+
+    /**
+     * GET /v1/bank-accounts. Returns the caller's current active
+     * withdrawal account for their mode.
+     *
+     * @throws PaybridgeApiException 404 if the merchant has never
+     *   registered one for this mode.
+     */
+    public function getActiveBankAccount(): BankAccount
+    {
+        $data = $this->request('GET', '/v1/bank-accounts');
 
         return BankAccount::fromArray($data);
     }

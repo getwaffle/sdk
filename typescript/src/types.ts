@@ -13,6 +13,7 @@ export type Channel = "qris" | "virtual_account";
 
 export type PayoutStatus =
   | "pending"
+  | "held"
   | "processing"
   | "completed"
   | "failed";
@@ -94,12 +95,19 @@ export interface RegisterBankAccountParams {
   accountHolderName: string;
 }
 
-/** Response body for `POST /v1/bank-accounts` (`201`). */
+/** Response body for `POST /v1/bank-accounts` (`201`) and `GET /v1/bank-accounts` (`200`). */
 export interface BankAccount {
   id: string;
   bankCode: string;
   accountNumber: string;
   accountHolderName: string;
+  /**
+   * When this became the active withdrawal account for the caller's
+   * mode. Present from `getActiveBankAccount`; a payout drawn against
+   * an account within 6 hours of this timestamp is held rather than
+   * dispatched — see {@link PayoutStatus}.
+   */
+  createdAt?: string;
 }
 
 /**
@@ -114,7 +122,16 @@ export interface CreatePayoutParams {
   currency: Currency;
 }
 
-/** Response body for `POST /v1/payouts` (`201`). No `provider` field. */
+/**
+ * Response body for `POST /v1/payouts` (`201`). No `provider` field —
+ * which PSP handled the payout is never surfaced to the merchant.
+ * `status: "held"` means the payout was claimed (debited) but drawn
+ * against a bank account registered within the last 6 hours — a
+ * security hold on withdrawal-account changes (see
+ * {@link BankAccount.createdAt}) — so it is deliberately not yet
+ * dispatched to a PSP; the server resumes it automatically once the
+ * account has aged past the window, no caller action needed.
+ */
 export interface Payout {
   id: string;
   bankAccountId: string;

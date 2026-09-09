@@ -341,18 +341,40 @@ type RegisterBankAccountParams struct {
 }
 
 // BankAccount is the response shape for RegisterBankAccount (POST
-// /v1/bank-accounts, 201).
+// /v1/bank-accounts, 201) and GetActiveBankAccount (GET
+// /v1/bank-accounts, 200).
 type BankAccount struct {
 	ID                string `json:"id"`
 	BankCode          string `json:"bank_code"`
 	AccountNumber     string `json:"account_number"`
 	AccountHolderName string `json:"account_holder_name"`
+	// CreatedAt is when this became the active withdrawal account for
+	// the caller's mode — empty on RegisterBankAccount's own response
+	// (echoed by the server; use GetActiveBankAccount to read it). A
+	// payout drawn against an account within 6 hours of this timestamp
+	// is held rather than dispatched; see Payout.Status's "held" doc.
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
-// RegisterBankAccount calls POST /v1/bank-accounts.
+// RegisterBankAccount calls POST /v1/bank-accounts. Registering a new
+// account disables any prior active one for the caller's mode — only one
+// active withdrawal destination per mode at a time.
 func (c *Client) RegisterBankAccount(ctx context.Context, params RegisterBankAccountParams) (*BankAccount, error) {
 	var out BankAccount
 	err := c.doJSON(ctx, http.MethodPost, "/v1/bank-accounts", nil, nil, params, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetActiveBankAccount calls GET /v1/bank-accounts, returning the
+// caller's current active withdrawal account for their mode. Returns a
+// wrapped *APIError with StatusCode 404 if the merchant has never
+// registered one for this mode.
+func (c *Client) GetActiveBankAccount(ctx context.Context) (*BankAccount, error) {
+	var out BankAccount
+	err := c.doJSON(ctx, http.MethodGet, "/v1/bank-accounts", nil, nil, nil, &out)
 	if err != nil {
 		return nil, err
 	}
@@ -373,9 +395,14 @@ type CreatePayoutParams struct {
 }
 
 // Payout is the response shape for CreatePayout (POST /v1/payouts, 201).
-// Status is one of "pending", "processing", "completed", "failed". There
-// is no Provider field — which PSP handled the payout is never surfaced
-// to the merchant.
+// Status is one of "pending", "held", "processing", "completed",
+// "failed". "held" means the payout was claimed (debited) but drawn
+// against a bank account registered within the last 6 hours — a security
+// hold on withdrawal-account changes (see BankAccount.CreatedAt) — so it
+// is deliberately not yet dispatched to a PSP; the server resumes it
+// automatically once the account has aged past the window, no caller
+// action needed. There is no Provider field — which PSP handled the
+// payout is never surfaced to the merchant.
 type Payout struct {
 	ID            string `json:"id"`
 	BankAccountID string `json:"bank_account_id"`
