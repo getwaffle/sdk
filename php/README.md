@@ -85,11 +85,12 @@ $key = IdempotencyKey::generate();
 
 ### `createCharge(CreateChargeParams $params, string $idempotencyKey): Charge`
 
-`POST /v1/charges`. `$params->provider` is **optional** (nullable) —
-omit it to let the server auto-route to the merchant's
-highest-priority connected PSP (`xendit > doku > gdc > sandbox`). The response
-reports which provider was picked. If the merchant has zero connected
-PSPs this is a `422`.
+`POST /v1/charges`. There is no `provider` field on the request or
+response — the server always auto-routes to the merchant's
+highest-priority connected PSP (`xendit > doku > gdc > sandbox`); which
+PSPs are connected, and their priority order, is exclusively an
+admin-controlled decision, never something a merchant names or is told.
+If the merchant has zero connected PSPs this is a `422`.
 
 ```php
 use Paybridge\Dto\CreateChargeParams;
@@ -99,7 +100,6 @@ $charge = $client->createCharge(
     new CreateChargeParams(
         amount: 100000,
         currency: 'IDR',
-        provider: 'xendit', // optional — omit (or pass null) to auto-route
         description: 'Order #42',
         customerRef: 'cust-42',
         returnUrl: 'https://shop.example/return',
@@ -116,16 +116,15 @@ $charge = $client->createCharge(
 ### `calculateFee(CalculateFeeParams $params): FeeQuote`
 
 `POST /v1/fees/calculate`. Preview-only — no charge, no ledger write, no
-provider call, no idempotency key needed. Unlike `createCharge`,
-**`provider` is required** here (non-nullable constructor argument):
-this quotes a specific PSP rather than auto-routing. Do not assume
-symmetry between the two endpoints.
+provider call, no idempotency key needed. There is no `provider` field
+on the request — the quote resolves against the same auto-routed
+provider `createCharge` would actually use, so a previewed fee always
+matches what a real charge would be billed.
 
 ```php
 use Paybridge\Dto\CalculateFeeParams;
 
 $quote = $client->calculateFee(new CalculateFeeParams(
-    provider: 'xendit',
     amount: 100000,
     currency: 'IDR',
 ));
@@ -149,10 +148,12 @@ $account = $client->registerBankAccount(new RegisterBankAccountParams(
 
 ### `createPayout(CreatePayoutParams $params, string $idempotencyKey): Payout`
 
-`POST /v1/payouts`. **`provider` is required** (non-nullable) — payout
-auto-routing does not exist (charge auto-routing does; do not assume
-symmetry). A `422` with message `"insufficient available balance"` means
-the merchant's withdrawable balance can't cover the payout.
+`POST /v1/payouts`. There is no `provider` field on the request or
+response — like `createCharge`, this auto-routes to the merchant's
+highest-priority connected PSP now (payouts used to require naming one
+explicitly; that asymmetry with charges is gone). A `422` with message
+`"insufficient available balance"` means the merchant's withdrawable
+balance can't cover the payout.
 
 ```php
 use Paybridge\Dto\CreatePayoutParams;
@@ -161,7 +162,6 @@ use Paybridge\IdempotencyKey;
 $payout = $client->createPayout(
     new CreatePayoutParams(
         bankAccountId: $account->id,
-        provider: 'xendit',
         amount: 40000,
         currency: 'IDR',
     ),

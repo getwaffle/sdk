@@ -8,11 +8,11 @@ namespace Paybridge\Dto;
  * Request body for {@see \Paybridge\Client::createCharge()}
  * (POST /v1/charges).
  *
- * `provider` is optional: leave it `null` to let the server auto-route to
- * the merchant's highest-priority connected PSP (xendit > doku > gdc > sandbox);
- * the response reports which one was picked. This is NOT symmetric with
- * {@see CalculateFeeParams} or {@see CreatePayoutParams}, where `provider`
- * is required — do not assume the two endpoints behave alike.
+ * There is no `provider` field: the server always auto-routes to the
+ * merchant's highest-priority connected PSP (xendit > doku > gdc >
+ * sandbox) — which PSPs are connected, and their priority order, is
+ * exclusively an admin-controlled decision, never something a merchant
+ * names.
  *
  * `channel` selects a specific payment channel instead of the default
  * redirect-based checkout flow. Accepted values are `"qris"` and
@@ -29,7 +29,6 @@ final class CreateChargeParams implements \JsonSerializable
     public function __construct(
         public readonly int $amount,
         public readonly string $currency,
-        public readonly ?string $provider = null,
         public readonly ?string $description = null,
         public readonly ?string $customerRef = null,
         public readonly ?string $returnUrl = null,
@@ -47,9 +46,6 @@ final class CreateChargeParams implements \JsonSerializable
             'amount' => $this->amount,
             'currency' => $this->currency,
         ];
-        if ($this->provider !== null) {
-            $body['provider'] = $this->provider;
-        }
         if ($this->description !== null) {
             $body['description'] = $this->description;
         }

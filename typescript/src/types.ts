@@ -1,12 +1,5 @@
-/**
- * PSP identifier. Known values seen in the wild are `"xendit"`, `"doku"`,
- * `"gdc"`, and `"sandbox"`, but the set is server-configured — the type
- * stays an open string union so new providers don't require an SDK
- * release.
- */
-export type Provider = "xendit" | "doku" | "gdc" | "sandbox" | (string & {});
-
 /** ISO 4217-ish currency code. Amounts are integers in the minor unit. */
+
 export type Currency = "IDR" | (string & {});
 
 export type ChargeStatus = "pending" | "paid" | "failed" | "expired";
@@ -14,8 +7,7 @@ export type ChargeStatus = "pending" | "paid" | "failed" | "expired";
 /**
  * Payment channel selecting a specific in-app payment method instead of
  * the default redirect-based checkout flow. The server currently defines
- * exactly these two values, so — unlike {@link Provider} — this stays a
- * closed union; add a value here when the server adds a channel.
+ * exactly these two values.
  */
 export type Channel = "qris" | "virtual_account";
 
@@ -28,15 +20,12 @@ export type PayoutStatus =
 export type Mode = "live" | "sandbox";
 
 /**
- * Request body for `POST /v1/charges`.
- *
- * `provider` is optional: omit it to let the server auto-route to the
- * merchant's highest-priority connected PSP. This is NOT symmetric with
- * {@link CalculateFeeParams} or {@link CreatePayoutParams}, where
- * `provider` is required — do not assume the two endpoints behave alike.
+ * Request body for `POST /v1/charges`. There is no `provider` field —
+ * the server always auto-routes to the merchant's highest-priority
+ * connected PSP; which PSPs are connected is an admin-only decision the
+ * merchant never names or sees.
  */
 export interface CreateChargeParams {
-  provider?: Provider;
   amount: number;
   currency: Currency;
   description?: string;
@@ -55,10 +44,9 @@ export interface CreateChargeParams {
   metadata?: Record<string, string>;
 }
 
-/** Response body for `POST /v1/charges` (`201`). */
+/** Response body for `POST /v1/charges` (`201`). No `provider` field. */
 export interface Charge {
   id: string;
-  provider: Provider;
   mode: Mode;
   status: ChargeStatus;
   grossAmount: number;
@@ -81,19 +69,18 @@ export interface Charge {
 }
 
 /**
- * Request body for `POST /v1/fees/calculate`. Unlike {@link CreateChargeParams},
- * `provider` is required here — this endpoint quotes a specific PSP, it
- * does not auto-route.
+ * Request body for `POST /v1/fees/calculate`. No `provider` field — the
+ * quote resolves against the same auto-routed PSP a real charge would
+ * use, so a previewed fee always matches what a real charge would be
+ * billed.
  */
 export interface CalculateFeeParams {
-  provider: Provider;
   amount: number;
   currency: Currency;
 }
 
-/** Response body for `POST /v1/fees/calculate` (`200`). */
+/** Response body for `POST /v1/fees/calculate` (`200`). No `provider` field. */
 export interface FeeQuote {
-  provider: Provider;
   grossAmount: number;
   feeAmount: number;
   netAmount: number;
@@ -116,22 +103,21 @@ export interface BankAccount {
 }
 
 /**
- * Request body for `POST /v1/payouts`. `provider` is required — payout
- * auto-routing does not exist (charge auto-routing does; the two
- * endpoints are not symmetric).
+ * Request body for `POST /v1/payouts`. No `provider` field — like
+ * `POST /v1/charges`, this auto-routes to the merchant's
+ * highest-priority connected PSP (payouts used to require naming one
+ * explicitly; that asymmetry with charges is gone).
  */
 export interface CreatePayoutParams {
   bankAccountId: string;
-  provider: Provider;
   amount: number;
   currency: Currency;
 }
 
-/** Response body for `POST /v1/payouts` (`201`). */
+/** Response body for `POST /v1/payouts` (`201`). No `provider` field. */
 export interface Payout {
   id: string;
   bankAccountId: string;
-  provider: Provider;
   mode: Mode;
   status: PayoutStatus;
   amount: number;

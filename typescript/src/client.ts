@@ -30,7 +30,6 @@ export interface PaybridgeClientOptions {
 
 interface RawChargeResponse {
   id: string;
-  provider: string;
   mode: "live" | "sandbox";
   status: "pending" | "paid" | "failed" | "expired";
   gross_amount: number;
@@ -47,7 +46,6 @@ interface RawChargeResponse {
 }
 
 interface RawFeeQuoteResponse {
-  provider: string;
   gross_amount: number;
   fee_amount: number;
   net_amount: number;
@@ -64,7 +62,6 @@ interface RawBankAccountResponse {
 interface RawPayoutResponse {
   id: string;
   bank_account_id: string;
-  provider: string;
   mode: "live" | "sandbox";
   status: "pending" | "processing" | "completed" | "failed";
   amount: number;
@@ -104,11 +101,12 @@ export class PaybridgeClient {
   }
 
   /**
-   * `POST /v1/charges`. `params.provider` is optional — omit it to let the
-   * server auto-route to the merchant's highest-priority connected PSP.
-   * `idempotencyKey` is required and must be supplied by the caller
-   * (see {@link generateIdempotencyKey}); retrying the exact same key
-   * returns the original charge rather than creating a duplicate.
+   * `POST /v1/charges`. There is no `provider` field — the server
+   * always auto-routes to the merchant's highest-priority connected
+   * PSP. `idempotencyKey` is required and must be supplied by the
+   * caller (see {@link generateIdempotencyKey}); retrying the exact
+   * same key returns the original charge rather than creating a
+   * duplicate.
    */
   async createCharge(
     params: CreateChargeParams,
@@ -118,7 +116,6 @@ export class PaybridgeClient {
       amount: params.amount,
       currency: params.currency,
     };
-    if (params.provider !== undefined) body["provider"] = params.provider;
     if (params.description !== undefined) body["description"] = params.description;
     if (params.customerRef !== undefined) body["customer_ref"] = params.customerRef;
     if (params.returnUrl !== undefined) body["return_url"] = params.returnUrl;
@@ -135,7 +132,6 @@ export class PaybridgeClient {
     });
     return {
       id: raw.id,
-      provider: raw.provider,
       mode: raw.mode,
       status: raw.status,
       grossAmount: raw.gross_amount,
@@ -153,10 +149,11 @@ export class PaybridgeClient {
   }
 
   /**
-   * `POST /v1/fees/calculate`. Preview-only — no charge, no ledger write,
-   * no provider call, no idempotency key needed. Unlike
-   * {@link PaybridgeClient.createCharge}, `params.provider` is required:
-   * this endpoint quotes a specific PSP rather than auto-routing.
+   * `POST /v1/fees/calculate`. Preview-only — no charge, no ledger
+   * write, no provider call, no idempotency key needed. There is no
+   * `provider` field: the quote resolves against the same auto-routed
+   * PSP a real charge would use, so a previewed fee always matches what
+   * a real charge would be billed.
    */
   async calculateFee(params: CalculateFeeParams): Promise<FeeQuote> {
     const raw = await this.requestJson<RawFeeQuoteResponse>(
@@ -164,14 +161,12 @@ export class PaybridgeClient {
       "/v1/fees/calculate",
       {
         body: {
-          provider: params.provider,
           amount: params.amount,
           currency: params.currency,
         },
       },
     );
     return {
-      provider: raw.provider,
       grossAmount: raw.gross_amount,
       feeAmount: raw.fee_amount,
       netAmount: raw.net_amount,
@@ -203,9 +198,10 @@ export class PaybridgeClient {
   }
 
   /**
-   * `POST /v1/payouts`. `params.provider` is required — payout
-   * auto-routing does not exist. `idempotencyKey` is required, same
-   * semantics as {@link PaybridgeClient.createCharge}.
+   * `POST /v1/payouts`. There is no `provider` field — like
+   * {@link PaybridgeClient.createCharge}, this auto-routes to the
+   * merchant's highest-priority connected PSP. `idempotencyKey` is
+   * required, same semantics as {@link PaybridgeClient.createCharge}.
    */
   async createPayout(
     params: CreatePayoutParams,
@@ -214,7 +210,6 @@ export class PaybridgeClient {
     const raw = await this.requestJson<RawPayoutResponse>("POST", "/v1/payouts", {
       body: {
         bank_account_id: params.bankAccountId,
-        provider: params.provider,
         amount: params.amount,
         currency: params.currency,
       },
@@ -223,7 +218,6 @@ export class PaybridgeClient {
     return {
       id: raw.id,
       bankAccountId: raw.bank_account_id,
-      provider: raw.provider,
       mode: raw.mode,
       status: raw.status,
       amount: raw.amount,

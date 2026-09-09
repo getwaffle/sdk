@@ -18,7 +18,6 @@ final class Charge implements \JsonSerializable
      */
     public function __construct(
         public readonly string $id,
-        public readonly string $provider,
         public readonly Mode $mode,
         public readonly ChargeStatus $status,
         public readonly int $grossAmount,
@@ -40,7 +39,6 @@ final class Charge implements \JsonSerializable
     {
         return new self(
             id: (string) $data['id'],
-            provider: (string) $data['provider'],
             mode: Mode::from((string) $data['mode']),
             status: ChargeStatus::from((string) $data['status']),
             grossAmount: (int) $data['gross_amount'],
@@ -62,7 +60,6 @@ final class Charge implements \JsonSerializable
     {
         return [
             'id' => $this->id,
-            'provider' => $this->provider,
             'mode' => $this->mode->value,
             'status' => $this->status->value,
             'gross_amount' => $this->grossAmount,

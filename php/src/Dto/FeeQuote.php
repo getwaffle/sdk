@@ -16,7 +16,6 @@ final class FeeQuote implements \JsonSerializable
      * @param int $netAmount integer minor-unit amount — never a float
      */
     public function __construct(
-        public readonly string $provider,
         public readonly int $grossAmount,
         public readonly int $feeAmount,
         public readonly int $netAmount,
@@ -28,7 +27,6 @@ final class FeeQuote implements \JsonSerializable
     public static function fromArray(array $data): self
     {
         return new self(
-            provider: (string) $data['provider'],
             grossAmount: (int) $data['gross_amount'],
             feeAmount: (int) $data['fee_amount'],
             netAmount: (int) $data['net_amount'],
@@ -40,7 +38,6 @@ final class FeeQuote implements \JsonSerializable
     public function jsonSerialize(): array
     {
         return [
-            'provider' => $this->provider,
             'gross_amount' => $this->grossAmount,
             'fee_amount' => $this->feeAmount,
             'net_amount' => $this->netAmount,

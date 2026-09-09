@@ -30,7 +30,6 @@ describe("PaybridgeClient", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(201, {
         id: "charge-1",
-        provider: "xendit",
         mode: "sandbox",
         status: "pending",
         gross_amount: 100000,
@@ -77,7 +76,6 @@ describe("PaybridgeClient", () => {
 
     expect(charge).toEqual({
       id: "charge-1",
-      provider: "xendit",
       mode: "sandbox",
       status: "pending",
       grossAmount: 100000,
@@ -90,11 +88,10 @@ describe("PaybridgeClient", () => {
     });
   });
 
-  it("omits provider from createCharge body when not supplied (auto-route)", async () => {
+  it("does not require or send a provider field in the createCharge body", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(201, {
         id: "charge-2",
-        provider: "doku",
         mode: "sandbox",
         status: "pending",
         gross_amount: 5000,
@@ -116,7 +113,6 @@ describe("PaybridgeClient", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(201, {
         id: "charge-va-1",
-        provider: "xendit",
         mode: "sandbox",
         status: "pending",
         gross_amount: 75000,
@@ -145,7 +141,6 @@ describe("PaybridgeClient", () => {
 
     expect(charge).toEqual({
       id: "charge-va-1",
-      provider: "xendit",
       mode: "sandbox",
       status: "pending",
       grossAmount: 75000,
@@ -163,7 +158,6 @@ describe("PaybridgeClient", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(201, {
         id: "charge-qris-1",
-        provider: "doku",
         mode: "sandbox",
         status: "pending",
         gross_amount: 15000,
@@ -192,10 +186,9 @@ describe("PaybridgeClient", () => {
     expect(charge.vaNumber).toBeUndefined();
   });
 
-  it("sends a correctly shaped calculateFee request with required provider", async () => {
+  it("sends a correctly shaped calculateFee request with no provider field", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, {
-        provider: "xendit",
         gross_amount: 100000,
         fee_amount: 3000,
         net_amount: 97000,
@@ -204,7 +197,6 @@ describe("PaybridgeClient", () => {
     );
 
     const quote = await client.calculateFee({
-      provider: "xendit",
       amount: 100000,
       currency: "IDR",
     });
@@ -214,12 +206,10 @@ describe("PaybridgeClient", () => {
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["Idempotency-Key"]).toBeUndefined();
     expect(JSON.parse(init.body as string)).toEqual({
-      provider: "xendit",
       amount: 100000,
       currency: "IDR",
     });
     expect(quote).toEqual({
-      provider: "xendit",
       grossAmount: 100000,
       feeAmount: 3000,
       netAmount: 97000,
@@ -258,12 +248,11 @@ describe("PaybridgeClient", () => {
     });
   });
 
-  it("sends a correctly shaped createPayout request with required provider", async () => {
+  it("sends a correctly shaped createPayout request with no provider field", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(201, {
         id: "payout-1",
         bank_account_id: "bank-1",
-        provider: "xendit",
         mode: "sandbox",
         status: "completed",
         amount: 40000,
@@ -274,7 +263,6 @@ describe("PaybridgeClient", () => {
     const payout = await client.createPayout(
       {
         bankAccountId: "bank-1",
-        provider: "xendit",
         amount: 40000,
         currency: "IDR",
       },
@@ -288,14 +276,12 @@ describe("PaybridgeClient", () => {
     );
     expect(JSON.parse(init.body as string)).toEqual({
       bank_account_id: "bank-1",
-      provider: "xendit",
       amount: 40000,
       currency: "IDR",
     });
     expect(payout).toEqual({
       id: "payout-1",
       bankAccountId: "bank-1",
-      provider: "xendit",
       mode: "sandbox",
       status: "completed",
       amount: 40000,
@@ -352,7 +338,7 @@ describe("PaybridgeClient", () => {
 
     const error = await client
       .createPayout(
-        { bankAccountId: "bank-1", provider: "xendit", amount: 999999999, currency: "IDR" },
+        { bankAccountId: "bank-1", amount: 999999999, currency: "IDR" },
         "idem-key-5",
       )
       .catch((e: unknown) => e);

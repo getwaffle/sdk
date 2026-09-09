@@ -28,9 +28,8 @@ func TestCreateCharge(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name: "with provider",
+			name: "basic charge",
 			params: CreateChargeParams{
-				Provider: "xendit",
 				Amount:   100000,
 				Currency: "IDR",
 				Metadata: map[string]string{"order": "abc"},
@@ -38,7 +37,7 @@ func TestCreateCharge(t *testing.T) {
 			idempotencyKey: "idem-key-1",
 		},
 		{
-			name: "provider omitted for auto-route",
+			name: "another charge",
 			params: CreateChargeParams{
 				Amount:   50000,
 				Currency: "IDR",
@@ -71,7 +70,6 @@ func TestCreateCharge(t *testing.T) {
 				w.WriteHeader(http.StatusCreated)
 				resp := Charge{
 					ID:          "chg_1",
-					Provider:    "xendit",
 					Mode:        "sandbox",
 					Status:      "pending",
 					GrossAmount: tt.params.Amount,
@@ -105,12 +103,8 @@ func TestCreateCharge(t *testing.T) {
 			if gotIdemKey != tt.idempotencyKey {
 				t.Errorf("Idempotency-Key = %q, want %q", gotIdemKey, tt.idempotencyKey)
 			}
-			if tt.params.Provider == "" {
-				if _, ok := gotBody["provider"]; ok {
-					t.Errorf("expected provider omitted from body, got %v", gotBody["provider"])
-				}
-			} else if gotBody["provider"] != tt.params.Provider {
-				t.Errorf("body provider = %v, want %v", gotBody["provider"], tt.params.Provider)
+			if _, ok := gotBody["provider"]; ok {
+				t.Errorf("expected no provider field in request body, got %v", gotBody["provider"])
 			}
 			if int64(gotBody["amount"].(float64)) != tt.params.Amount {
 				t.Errorf("body amount = %v, want %v", gotBody["amount"], tt.params.Amount)
@@ -131,7 +125,6 @@ func TestCreateChargeWithChannel(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		resp := Charge{
 			ID:          "chg_va_1",
-			Provider:    "xendit",
 			Mode:        "sandbox",
 			Status:      "pending",
 			GrossAmount: 75000,
@@ -186,7 +179,6 @@ func TestCreateChargeQRISResponseDeserialization(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{
 			"id": "chg_qris_1",
-			"provider": "doku",
 			"mode": "sandbox",
 			"status": "pending",
 			"gross_amount": 15000,
@@ -228,7 +220,6 @@ func TestCalculateFee(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(FeeQuote{
-			Provider:    "xendit",
 			GrossAmount: 100000,
 			FeeAmount:   3000,
 			NetAmount:   97000,
@@ -237,7 +228,6 @@ func TestCalculateFee(t *testing.T) {
 	})
 
 	quote, err := c.CalculateFee(context.Background(), CalculateFeeParams{
-		Provider: "xendit",
 		Amount:   100000,
 		Currency: "IDR",
 	})
@@ -247,17 +237,11 @@ func TestCalculateFee(t *testing.T) {
 	if gotMethod != http.MethodPost || gotPath != "/v1/fees/calculate" {
 		t.Errorf("got %s %s, want POST /v1/fees/calculate", gotMethod, gotPath)
 	}
-	if gotBody["provider"] != "xendit" {
-		t.Errorf("body provider = %v", gotBody["provider"])
+	if _, ok := gotBody["provider"]; ok {
+		t.Errorf("expected no provider field in request body, got %v", gotBody["provider"])
 	}
 	if quote.FeeAmount != 3000 {
 		t.Errorf("FeeAmount = %d, want 3000", quote.FeeAmount)
-	}
-
-	// Provider is required — no auto-routing symmetry with CreateCharge.
-	_, err = c.CalculateFee(context.Background(), CalculateFeeParams{Amount: 1000, Currency: "IDR"})
-	if err == nil {
-		t.Fatalf("expected error when Provider is empty")
 	}
 }
 
@@ -310,7 +294,6 @@ func TestCreatePayout(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(Payout{
 			ID:            "po_1",
 			BankAccountID: "ba_1",
-			Provider:      "xendit",
 			Mode:          "sandbox",
 			Status:        "completed",
 			Amount:        40000,
@@ -320,7 +303,6 @@ func TestCreatePayout(t *testing.T) {
 
 	payout, err := c.CreatePayout(context.Background(), CreatePayoutParams{
 		BankAccountID: "ba_1",
-		Provider:      "xendit",
 		Amount:        40000,
 		Currency:      "IDR",
 	}, "idem-payout-1")
@@ -333,24 +315,16 @@ func TestCreatePayout(t *testing.T) {
 	if gotIdemKey != "idem-payout-1" {
 		t.Errorf("Idempotency-Key = %q", gotIdemKey)
 	}
-	if gotBody["provider"] != "xendit" {
-		t.Errorf("body provider = %v", gotBody["provider"])
+	if _, ok := gotBody["provider"]; ok {
+		t.Errorf("expected no provider field in request body, got %v", gotBody["provider"])
 	}
 	if payout.Amount != 40000 {
 		t.Errorf("Amount = %d, want 40000", payout.Amount)
 	}
 
-	// Provider required, no auto-routing.
-	_, err = c.CreatePayout(context.Background(), CreatePayoutParams{
-		BankAccountID: "ba_1", Amount: 1000, Currency: "IDR",
-	}, "idem-x")
-	if err == nil {
-		t.Fatalf("expected error when Provider is empty")
-	}
-
 	// Idempotency key required.
 	_, err = c.CreatePayout(context.Background(), CreatePayoutParams{
-		BankAccountID: "ba_1", Provider: "xendit", Amount: 1000, Currency: "IDR",
+		BankAccountID: "ba_1", Amount: 1000, Currency: "IDR",
 	}, "")
 	if err == nil {
 		t.Fatalf("expected error when idempotencyKey is empty")
@@ -438,7 +412,7 @@ func TestAPIErrorTranslation(t *testing.T) {
 			})
 
 			_, err := c.CalculateFee(context.Background(), CalculateFeeParams{
-				Provider: "xendit", Amount: 1000, Currency: "IDR",
+				Amount: 1000, Currency: "IDR",
 			})
 			if err == nil {
 				t.Fatalf("expected error")

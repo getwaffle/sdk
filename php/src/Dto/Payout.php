@@ -14,7 +14,6 @@ final class Payout implements \JsonSerializable
     public function __construct(
         public readonly string $id,
         public readonly string $bankAccountId,
-        public readonly string $provider,
         public readonly Mode $mode,
         public readonly PayoutStatus $status,
         public readonly int $amount,
@@ -29,7 +28,6 @@ final class Payout implements \JsonSerializable
         return new self(
             id: (string) $data['id'],
             bankAccountId: (string) $data['bank_account_id'],
-            provider: (string) $data['provider'],
             mode: Mode::from((string) $data['mode']),
             status: PayoutStatus::from((string) $data['status']),
             amount: (int) $data['amount'],
@@ -44,7 +42,6 @@ final class Payout implements \JsonSerializable
         return [
             'id' => $this->id,
             'bank_account_id' => $this->bankAccountId,
-            'provider' => $this->provider,
             'mode' => $this->mode->value,
             'status' => $this->status->value,
             'amount' => $this->amount,

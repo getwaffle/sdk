@@ -223,14 +223,12 @@ func (c *Client) Healthz(ctx context.Context) error {
 // --- Charges ---------------------------------------------------------------
 
 // CreateChargeParams is the request body for CreateCharge (POST
-// /v1/charges). Provider is optional: leave it as the empty string to
-// have the server auto-route to the merchant's highest-priority connected
-// PSP (xendit > doku > gdc > sandbox); the response's Provider field reports
-// which one was picked. Metadata is optional; leave nil to omit it.
+// /v1/charges). There is no Provider field: the server always
+// auto-routes to the merchant's highest-priority connected PSP (xendit >
+// doku > gdc > sandbox) — which PSPs are connected, and their priority
+// order, is an admin-controlled decision the merchant never names or is
+// told. Metadata is optional; leave nil to omit it.
 type CreateChargeParams struct {
-	// Provider is optional. Zero value (empty string) means "omit from
-	// the request body, let the server auto-route."
-	Provider    string `json:"provider,omitempty"`
 	Amount      int64  `json:"amount"`
 	Currency    string `json:"currency"`
 	Description string `json:"description,omitempty"`
@@ -248,10 +246,11 @@ type CreateChargeParams struct {
 }
 
 // Charge is the response shape for CreateCharge (POST /v1/charges,
-// 201). Status is one of "pending", "paid", "failed", "expired".
+// 201). Status is one of "pending", "paid", "failed", "expired". There is
+// no Provider field — which PSP handled the charge is never surfaced to
+// the merchant.
 type Charge struct {
 	ID          string `json:"id"`
-	Provider    string `json:"provider"`
 	Mode        string `json:"mode"`
 	Status      string `json:"status"`
 	GrossAmount int64  `json:"gross_amount"`
@@ -282,9 +281,9 @@ type Charge struct {
 // this SDK never generates one silently.
 //
 // Possible errors (via errors.As(err, &apiErr)): 400 malformed
-// amount/currency; 422 no gateway/fee rule for the resolved provider (or
-// zero connected PSPs when Provider is omitted), or provider call failed;
-// 429 fraud velocity limit exceeded.
+// amount/currency; 422 no gateway/fee rule for the auto-routed provider,
+// zero connected PSPs, or the provider call failed; 429 fraud velocity
+// limit exceeded.
 func (c *Client) CreateCharge(ctx context.Context, params CreateChargeParams, idempotencyKey string) (*Charge, error) {
 	if idempotencyKey == "" {
 		return nil, errors.New("paybridge: idempotencyKey is required for CreateCharge")
@@ -301,11 +300,10 @@ func (c *Client) CreateCharge(ctx context.Context, params CreateChargeParams, id
 // --- Fees --------------------------------------------------------------
 
 // CalculateFeeParams is the request body for CalculateFee (POST
-// /v1/fees/calculate). Unlike CreateChargeParams, Provider is required
-// here — this endpoint does not auto-route; do not assume symmetry with
-// CreateCharge.
+// /v1/fees/calculate). There is no Provider field: the quote resolves
+// against the same auto-routed provider a real CreateCharge would use,
+// so a previewed fee always matches what a real charge would be billed.
 type CalculateFeeParams struct {
-	Provider string `json:"provider"`
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
 }
@@ -314,7 +312,6 @@ type CalculateFeeParams struct {
 // /v1/fees/calculate, 200). This is a preview only: no charge, no ledger
 // write, no provider call is made.
 type FeeQuote struct {
-	Provider    string `json:"provider"`
 	GrossAmount int64  `json:"gross_amount"`
 	FeeAmount   int64  `json:"fee_amount"`
 	NetAmount   int64  `json:"net_amount"`
@@ -324,9 +321,6 @@ type FeeQuote struct {
 // CalculateFee calls POST /v1/fees/calculate. No Idempotency-Key header is
 // sent or needed (preview-only, no side effects).
 func (c *Client) CalculateFee(ctx context.Context, params CalculateFeeParams) (*FeeQuote, error) {
-	if params.Provider == "" {
-		return nil, errors.New("paybridge: Provider is required for CalculateFee (no auto-routing here)")
-	}
 	var out FeeQuote
 	err := c.doJSON(ctx, http.MethodPost, "/v1/fees/calculate", nil, nil, params, &out)
 	if err != nil {
@@ -368,21 +362,23 @@ func (c *Client) RegisterBankAccount(ctx context.Context, params RegisterBankAcc
 // --- Payouts -------------------------------------------------------------
 
 // CreatePayoutParams is the request body for CreatePayout (POST
-// /v1/payouts). Provider is required — payout auto-routing does not
-// exist, unlike CreateCharge.
+// /v1/payouts). There is no Provider field: like CreateCharge, this
+// auto-routes to the merchant's highest-priority connected PSP — the
+// asymmetry where payouts once required naming a provider explicitly is
+// gone.
 type CreatePayoutParams struct {
 	BankAccountID string `json:"bank_account_id"`
-	Provider      string `json:"provider"`
 	Amount        int64  `json:"amount"`
 	Currency      string `json:"currency"`
 }
 
 // Payout is the response shape for CreatePayout (POST /v1/payouts, 201).
-// Status is one of "pending", "processing", "completed", "failed".
+// Status is one of "pending", "processing", "completed", "failed". There
+// is no Provider field — which PSP handled the payout is never surfaced
+// to the merchant.
 type Payout struct {
 	ID            string `json:"id"`
 	BankAccountID string `json:"bank_account_id"`
-	Provider      string `json:"provider"`
 	Mode          string `json:"mode"`
 	Status        string `json:"status"`
 	Amount        int64  `json:"amount"`
@@ -399,9 +395,6 @@ type Payout struct {
 func (c *Client) CreatePayout(ctx context.Context, params CreatePayoutParams, idempotencyKey string) (*Payout, error) {
 	if idempotencyKey == "" {
 		return nil, errors.New("paybridge: idempotencyKey is required for CreatePayout")
-	}
-	if params.Provider == "" {
-		return nil, errors.New("paybridge: Provider is required for CreatePayout (no auto-routing here)")
 	}
 	var out Payout
 	err := c.doJSON(ctx, http.MethodPost, "/v1/payouts", nil,

@@ -8,15 +8,14 @@ namespace Paybridge\Dto;
  * Request body for {@see \Paybridge\Client::createPayout()}
  * (POST /v1/payouts).
  *
- * `provider` is required — payout auto-routing does not exist (charge
- * auto-routing does; the two endpoints are not symmetric).
+ * There is no `provider` field — like {@see CreateChargeParams}, this
+ * auto-routes to the merchant's highest-priority connected PSP.
  */
 final class CreatePayoutParams implements \JsonSerializable
 {
     /** @param int $amount integer minor-unit amount — never a float */
     public function __construct(
         public readonly string $bankAccountId,
-        public readonly string $provider,
         public readonly int $amount,
         public readonly string $currency,
     ) {
@@ -27,7 +26,6 @@ final class CreatePayoutParams implements \JsonSerializable
     {
         return [
             'bank_account_id' => $this->bankAccountId,
-            'provider' => $this->provider,
             'amount' => $this->amount,
             'currency' => $this->currency,
         ];

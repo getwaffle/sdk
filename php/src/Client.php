@@ -62,11 +62,13 @@ final class Client
     }
 
     /**
-     * POST /v1/charges. `$params->provider` is optional — omit it (leave
-     * `null`) to let the server auto-route to the merchant's
-     * highest-priority connected PSP (xendit > doku > gdc > sandbox); the
-     * response reports which one was picked. If the merchant has zero
-     * connected PSPs this is a 422, not a silent guess.
+     * POST /v1/charges. There is no `provider` field on the request or
+     * response: the server always auto-routes to the merchant's
+     * highest-priority connected PSP (xendit > doku > gdc > sandbox) —
+     * which PSPs are connected, and their priority order, is exclusively
+     * an admin-controlled decision, never something a merchant names or
+     * is told. If the merchant has zero connected PSPs this is a 422,
+     * not a silent guess.
      *
      * `$idempotencyKey` is required and sent as the `Idempotency-Key`
      * header — retrying the exact same key returns the original charge
@@ -93,10 +95,11 @@ final class Client
 
     /**
      * POST /v1/fees/calculate. Preview-only: no charge, no ledger write,
-     * no provider call, no `Idempotency-Key` needed. Unlike
-     * {@see self::createCharge()}, `$params->provider` is required — this
-     * endpoint quotes a specific PSP rather than auto-routing; do not
-     * assume symmetry between the two endpoints.
+     * no provider call, no `Idempotency-Key` needed. There is no
+     * `provider` field on the request — the quote resolves against the
+     * same auto-routed provider {@see self::createCharge()} would
+     * actually use, so a previewed fee always matches what a real charge
+     * would be billed.
      */
     public function calculateFee(CalculateFeeParams $params): FeeQuote
     {
@@ -114,9 +117,10 @@ final class Client
     }
 
     /**
-     * POST /v1/payouts. `$params->provider` is required — payout
-     * auto-routing does not exist. `$idempotencyKey` is required, same
-     * semantics as {@see self::createCharge()}.
+     * POST /v1/payouts. There is no `provider` field on the request or
+     * response — like {@see self::createCharge()}, this auto-routes to
+     * the merchant's highest-priority connected PSP. `$idempotencyKey`
+     * is required, same semantics as {@see self::createCharge()}.
      *
      * @throws PaybridgeApiException 422 with message
      *   "insufficient available balance" when the merchant's withdrawable

@@ -105,15 +105,14 @@ instead of creating a duplicate.
 
 ### `CreateCharge` — `POST /v1/charges`
 
-`Provider` is optional: the zero value (empty string) omits it from the
-request body, letting the server auto-route to the merchant's
-highest-priority connected PSP (`xendit` > `doku` > `gdc` > `sandbox`). The
-response's `Provider` field reports which PSP was picked. If the merchant
-has zero connected PSPs, this is a `422`, not a silent guess.
+There is no `Provider` field: the server always auto-routes to the
+merchant's highest-priority connected PSP (`xendit` > `doku` > `gdc` >
+`sandbox`) — which PSPs are connected, and their priority order, is an
+admin-controlled decision the merchant never names or is told. If the
+merchant has zero connected PSPs, this is a `422`, not a silent guess.
 
 ```go
 charge, err := client.CreateCharge(ctx, paybridge.CreateChargeParams{
-	// Provider: "xendit", // optional — omit to auto-route
 	Amount:           100000, // Rp100.000, integer minor units
 	Currency:         "IDR",
 	Description:      "Order #1234",
@@ -129,18 +128,19 @@ fmt.Println(charge.ID, charge.Status, charge.CheckoutURL)
 ```
 
 Errors: `400` malformed amount/currency; `422` no gateway/fee rule for the
-resolved provider, or provider call failed; `429` fraud velocity limit
-exceeded.
+auto-routed provider, zero connected PSPs, or the provider call failed;
+`429` fraud velocity limit exceeded.
 
 ### `CalculateFee` — `POST /v1/fees/calculate`
 
 Preview-only: no charge, no ledger write, no provider call, no
-`Idempotency-Key` needed. Unlike `CreateCharge`, `Provider` is **required**
-here — this endpoint does not auto-route.
+`Idempotency-Key` needed. There is no `Provider` field here either — the
+quote resolves against the same auto-routed provider `CreateCharge` would
+actually use, so a previewed fee always matches what a real charge would
+be billed.
 
 ```go
 quote, err := client.CalculateFee(ctx, paybridge.CalculateFeeParams{
-	Provider: "xendit",
 	Amount:   100000,
 	Currency: "IDR",
 })
@@ -168,13 +168,14 @@ fmt.Println(account.ID)
 
 ### `CreatePayout` — `POST /v1/payouts`
 
-`Provider` is **required** — payout auto-routing does not exist (unlike
-charges). Requires an `Idempotency-Key`, same semantics as `CreateCharge`.
+There is no `Provider` field: like `CreateCharge`, this auto-routes to
+the merchant's highest-priority connected PSP — the asymmetry where
+payouts once required naming a provider explicitly is gone. Requires an
+`Idempotency-Key`, same semantics as `CreateCharge`.
 
 ```go
 payout, err := client.CreatePayout(ctx, paybridge.CreatePayoutParams{
 	BankAccountID: account.ID,
-	Provider:      "xendit",
 	Amount:        40000,
 	Currency:      "IDR",
 }, paybridge.GenerateIdempotencyKey())

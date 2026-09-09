@@ -78,15 +78,16 @@ const key = generateIdempotencyKey();
 
 ### `createCharge(params, idempotencyKey)`
 
-`POST /v1/charges`. `params.provider` is **optional** — omit it to let
-the server auto-route to the merchant's highest-priority connected PSP
-(`xendit > doku > gdc > sandbox`). The response reports which provider was
-picked. If the merchant has zero connected PSPs this is a `422`.
+`POST /v1/charges`. There is no `provider` field — the server always
+auto-routes to the merchant's highest-priority connected PSP
+(`xendit > doku > gdc > sandbox`). Which PSPs are connected, and their
+priority order, is exclusively an admin-controlled decision — a merchant
+never names or is told which PSP handled a charge. If the merchant has
+zero connected PSPs this is a `422`.
 
 ```ts
 const charge = await client.createCharge(
   {
-    provider: "xendit", // optional — omit to auto-route
     amount: 100000,
     currency: "IDR",
     description: "Order #42",
@@ -105,13 +106,13 @@ const charge = await client.createCharge(
 ### `calculateFee(params)`
 
 `POST /v1/fees/calculate`. Preview-only — no charge, no ledger write, no
-provider call, no idempotency key needed. Unlike `createCharge`,
-**`provider` is required** here: this quotes a specific PSP rather than
-auto-routing. Do not assume symmetry between the two endpoints.
+provider call, no idempotency key needed. There is no `provider` field:
+the quote resolves against the same auto-routed PSP a real charge would
+use, so a previewed fee always matches what a real charge would be
+billed.
 
 ```ts
 const quote = await client.calculateFee({
-  provider: "xendit",
   amount: 100000,
   currency: "IDR",
 });
@@ -133,16 +134,17 @@ const account = await client.registerBankAccount({
 
 ### `createPayout(params, idempotencyKey)`
 
-`POST /v1/payouts`. **`provider` is required** — payout auto-routing
-does not exist (charge auto-routing does; do not assume symmetry). A
-`422` with message `"insufficient available balance"` means the
-merchant's withdrawable balance can't cover the payout.
+`POST /v1/payouts`. There is no `provider` field — like `createCharge`,
+this auto-routes to the merchant's highest-priority connected PSP
+(payouts used to require naming one explicitly; that asymmetry with
+charges is gone). A `422` with message `"insufficient available
+balance"` means the merchant's withdrawable balance can't cover the
+payout.
 
 ```ts
 const payout = await client.createPayout(
   {
     bankAccountId: account.id,
-    provider: "xendit",
     amount: 40000,
     currency: "IDR",
   },

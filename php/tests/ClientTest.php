@@ -27,11 +27,10 @@ final class ClientTest extends TestCase
         new Client('');
     }
 
-    public function testCreateChargeSendsCorrectRequestWithProvider(): void
+    public function testCreateChargeSendsCorrectRequest(): void
     {
         $responseBody = json_encode([
             'id' => 'charge-1',
-            'provider' => 'xendit',
             'mode' => 'sandbox',
             'status' => 'pending',
             'gross_amount' => 100000,
@@ -49,7 +48,6 @@ final class ClientTest extends TestCase
             new CreateChargeParams(
                 amount: 100000,
                 currency: 'IDR',
-                provider: 'xendit',
                 description: 'Order #42',
                 customerRef: 'cust-42',
                 returnUrl: 'https://shop.example/return',
@@ -69,7 +67,6 @@ final class ClientTest extends TestCase
         self::assertSame([
             'amount' => 100000,
             'currency' => 'IDR',
-            'provider' => 'xendit',
             'description' => 'Order #42',
             'customer_ref' => 'cust-42',
             'return_url' => 'https://shop.example/return',
@@ -78,7 +75,6 @@ final class ClientTest extends TestCase
         ], $sentBody);
 
         self::assertSame('charge-1', $charge->id);
-        self::assertSame('xendit', $charge->provider);
         self::assertSame(Mode::Sandbox, $charge->mode);
         self::assertSame(ChargeStatus::Pending, $charge->status);
         self::assertSame(100000, $charge->grossAmount);
@@ -88,11 +84,10 @@ final class ClientTest extends TestCase
         self::assertIsInt($charge->grossAmount);
     }
 
-    public function testCreateChargeOmitsProviderFromBodyWhenNull(): void
+    public function testCreateChargeSendsMinimalRequest(): void
     {
         $responseBody = json_encode([
             'id' => 'charge-2',
-            'provider' => 'sandbox',
             'mode' => 'sandbox',
             'status' => 'pending',
             'gross_amount' => 5000,
@@ -110,7 +105,6 @@ final class ClientTest extends TestCase
         );
 
         $sentBody = json_decode((string) $transport->lastBody, true, flags: JSON_THROW_ON_ERROR);
-        self::assertArrayNotHasKey('provider', $sentBody);
         self::assertArrayNotHasKey('metadata', $sentBody);
         self::assertNull($charge->checkoutUrl);
         self::assertNull($charge->metadata);
@@ -120,7 +114,6 @@ final class ClientTest extends TestCase
     {
         $responseBody = json_encode([
             'id' => 'charge-va-1',
-            'provider' => 'xendit',
             'mode' => 'sandbox',
             'status' => 'pending',
             'gross_amount' => 75000,
@@ -164,7 +157,6 @@ final class ClientTest extends TestCase
     {
         $responseBody = json_encode([
             'id' => 'charge-qris-1',
-            'provider' => 'doku',
             'mode' => 'sandbox',
             'status' => 'pending',
             'gross_amount' => 15000,
@@ -207,7 +199,6 @@ final class ClientTest extends TestCase
     public function testCalculateFeeSendsCorrectRequestWithoutIdempotencyHeader(): void
     {
         $responseBody = json_encode([
-            'provider' => 'xendit',
             'gross_amount' => 100000,
             'fee_amount' => 3000,
             'net_amount' => 97000,
@@ -216,14 +207,14 @@ final class ClientTest extends TestCase
         $transport = new FakeTransport(new TransportResponse(200, $responseBody));
         $client = new Client(self::API_KEY, self::BASE_URL, $transport);
 
-        $quote = $client->calculateFee(new CalculateFeeParams(provider: 'xendit', amount: 100000, currency: 'IDR'));
+        $quote = $client->calculateFee(new CalculateFeeParams(amount: 100000, currency: 'IDR'));
 
         self::assertSame('POST', $transport->lastMethod);
         self::assertSame(self::BASE_URL . '/v1/fees/calculate', $transport->lastUrl);
         self::assertArrayNotHasKey('Idempotency-Key', $transport->lastHeaders);
 
         $sentBody = json_decode((string) $transport->lastBody, true, flags: JSON_THROW_ON_ERROR);
-        self::assertSame(['provider' => 'xendit', 'amount' => 100000, 'currency' => 'IDR'], $sentBody);
+        self::assertSame(['amount' => 100000, 'currency' => 'IDR'], $sentBody);
         self::assertSame(3000, $quote->feeAmount);
     }
 
@@ -260,7 +251,6 @@ final class ClientTest extends TestCase
         $responseBody = json_encode([
             'id' => 'payout-1',
             'bank_account_id' => 'bank-1',
-            'provider' => 'xendit',
             'mode' => 'sandbox',
             'status' => 'completed',
             'amount' => 40000,
@@ -270,7 +260,7 @@ final class ClientTest extends TestCase
         $client = new Client(self::API_KEY, self::BASE_URL, $transport);
 
         $payout = $client->createPayout(
-            new CreatePayoutParams(bankAccountId: 'bank-1', provider: 'xendit', amount: 40000, currency: 'IDR'),
+            new CreatePayoutParams(bankAccountId: 'bank-1', amount: 40000, currency: 'IDR'),
             'idem-key-3',
         );
 
@@ -280,7 +270,6 @@ final class ClientTest extends TestCase
         $sentBody = json_decode((string) $transport->lastBody, true, flags: JSON_THROW_ON_ERROR);
         self::assertSame([
             'bank_account_id' => 'bank-1',
-            'provider' => 'xendit',
             'amount' => 40000,
             'currency' => 'IDR',
         ], $sentBody);
@@ -294,7 +283,7 @@ final class ClientTest extends TestCase
 
         $this->expectException(\InvalidArgumentException::class);
         $client->createPayout(
-            new CreatePayoutParams(bankAccountId: 'bank-1', provider: 'xendit', amount: 1000, currency: 'IDR'),
+            new CreatePayoutParams(bankAccountId: 'bank-1', amount: 1000, currency: 'IDR'),
             '',
         );
     }
@@ -361,7 +350,7 @@ final class ClientTest extends TestCase
         $client = new Client(self::API_KEY, self::BASE_URL, $transport);
 
         try {
-            $client->calculateFee(new CalculateFeeParams(provider: 'xendit', amount: 1000, currency: 'IDR'));
+            $client->calculateFee(new CalculateFeeParams(amount: 1000, currency: 'IDR'));
             self::fail('Expected PaybridgeApiException to be thrown');
         } catch (PaybridgeApiException $e) {
             self::assertSame($status, $e->statusCode);

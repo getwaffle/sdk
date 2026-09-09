@@ -15,6 +15,5 @@ export type {
   Mode,
   Payout,
   PayoutStatus,
-  Provider,
   RegisterBankAccountParams,
 } from "./types.js";
