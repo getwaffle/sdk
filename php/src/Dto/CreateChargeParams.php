@@ -9,7 +9,7 @@ namespace Paybridge\Dto;
  * (POST /v1/charges).
  *
  * `provider` is optional: leave it `null` to let the server auto-route to
- * the merchant's highest-priority connected PSP (xendit > doku > sandbox);
+ * the merchant's highest-priority connected PSP (xendit > doku > gdc > sandbox);
  * the response reports which one was picked. This is NOT symmetric with
  * {@see CalculateFeeParams} or {@see CreatePayoutParams}, where `provider`
  * is required — do not assume the two endpoints behave alike.

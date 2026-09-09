@@ -107,7 +107,7 @@ instead of creating a duplicate.
 
 `Provider` is optional: the zero value (empty string) omits it from the
 request body, letting the server auto-route to the merchant's
-highest-priority connected PSP (`xendit` > `doku` > `sandbox`). The
+highest-priority connected PSP (`xendit` > `doku` > `gdc` > `sandbox`). The
 response's `Provider` field reports which PSP was picked. If the merchant
 has zero connected PSPs, this is a `422`, not a silent guess.
 

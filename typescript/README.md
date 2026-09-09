@@ -80,7 +80,7 @@ const key = generateIdempotencyKey();
 
 `POST /v1/charges`. `params.provider` is **optional** — omit it to let
 the server auto-route to the merchant's highest-priority connected PSP
-(`xendit > doku > sandbox`). The response reports which provider was
+(`xendit > doku > gdc > sandbox`). The response reports which provider was
 picked. If the merchant has zero connected PSPs this is a `422`.
 
 ```ts

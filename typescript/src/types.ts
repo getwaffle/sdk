@@ -1,9 +1,10 @@
 /**
  * PSP identifier. Known values seen in the wild are `"xendit"`, `"doku"`,
- * and `"sandbox"`, but the set is server-configured — the type stays an
- * open string union so new providers don't require an SDK release.
+ * `"gdc"`, and `"sandbox"`, but the set is server-configured — the type
+ * stays an open string union so new providers don't require an SDK
+ * release.
  */
-export type Provider = "xendit" | "doku" | "sandbox" | (string & {});
+export type Provider = "xendit" | "doku" | "gdc" | "sandbox" | (string & {});
 
 /** ISO 4217-ish currency code. Amounts are integers in the minor unit. */
 export type Currency = "IDR" | (string & {});

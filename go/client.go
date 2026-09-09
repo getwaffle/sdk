@@ -225,7 +225,7 @@ func (c *Client) Healthz(ctx context.Context) error {
 // CreateChargeParams is the request body for CreateCharge (POST
 // /v1/charges). Provider is optional: leave it as the empty string to
 // have the server auto-route to the merchant's highest-priority connected
-// PSP (xendit > doku > sandbox); the response's Provider field reports
+// PSP (xendit > doku > gdc > sandbox); the response's Provider field reports
 // which one was picked. Metadata is optional; leave nil to omit it.
 type CreateChargeParams struct {
 	// Provider is optional. Zero value (empty string) means "omit from

@@ -64,7 +64,7 @@ final class Client
     /**
      * POST /v1/charges. `$params->provider` is optional — omit it (leave
      * `null`) to let the server auto-route to the merchant's
-     * highest-priority connected PSP (xendit > doku > sandbox); the
+     * highest-priority connected PSP (xendit > doku > gdc > sandbox); the
      * response reports which one was picked. If the merchant has zero
      * connected PSPs this is a 422, not a silent guess.
      *

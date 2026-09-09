@@ -87,7 +87,7 @@ $key = IdempotencyKey::generate();
 
 `POST /v1/charges`. `$params->provider` is **optional** (nullable) —
 omit it to let the server auto-route to the merchant's
-highest-priority connected PSP (`xendit > doku > sandbox`). The response
+highest-priority connected PSP (`xendit > doku > gdc > sandbox`). The response
 reports which provider was picked. If the merchant has zero connected
 PSPs this is a `422`.
 
