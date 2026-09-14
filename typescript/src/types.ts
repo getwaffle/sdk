@@ -148,3 +148,18 @@ export interface Balance {
   currency: Currency;
   amount: number;
 }
+
+/**
+ * Response body entry for `GET /v1/banks` (`200`, array). Public,
+ * unauthenticated, active-only, ordered by `sortOrder` — the same
+ * directory the checkout page and dashboard bank pickers render from.
+ * No `id`/`active` field: every returned row is already active by
+ * construction (the server always calls `ListActive`).
+ */
+export interface Bank {
+  code: string;
+  name: string;
+  /** Omitted when the bank has no logo asset on file. */
+  logoUrl?: string;
+  sortOrder: number;
+}

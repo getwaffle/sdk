@@ -166,6 +166,18 @@ const balance = await client.getBalance("IDR");
 // balance.currency, balance.amount
 ```
 
+### `listBanks()`
+
+`GET /v1/banks`. Public and unauthenticated (no API key required, though
+one is sent anyway — the route ignores it), active-only, ordered by
+`sortOrder`. Use this to validate or prompt for a `bankCode` before
+calling `registerBankAccount` instead of hardcoding a bank list.
+
+```ts
+const banks = await client.listBanks();
+// banks[0].code, banks[0].name, banks[0].logoUrl (omitted if unset), banks[0].sortOrder
+```
+
 ### `healthz()`
 
 `GET /healthz`. No auth. Resolves `true` when the server returns `200

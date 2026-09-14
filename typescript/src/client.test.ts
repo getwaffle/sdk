@@ -310,6 +310,25 @@ describe("PaybridgeClient", () => {
     expect(url).toBe("http://localhost:8080/v1/balance");
   });
 
+  it("sends listBanks as an unauthenticated-shaped GET and maps camelCase fields, omitting null logo_url", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, [
+        { code: "BCA", name: "Bank Central Asia", logo_url: "https://cdn.example/bca.svg", sort_order: 1 },
+        { code: "MANDIRI", name: "Bank Mandiri", logo_url: null, sort_order: 2 },
+      ]),
+    );
+
+    const banks = await client.listBanks();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://localhost:8080/v1/banks");
+    expect(init.method).toBe("GET");
+    expect(banks).toEqual([
+      { code: "BCA", name: "Bank Central Asia", logoUrl: "https://cdn.example/bca.svg", sortOrder: 1 },
+      { code: "MANDIRI", name: "Bank Mandiri", sortOrder: 2 },
+    ]);
+  });
+
   it("calls healthz with no auth header and returns true on 200 'ok'", async () => {
     fetchMock.mockResolvedValueOnce(textResponse(200, "ok"));
 

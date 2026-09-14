@@ -1,6 +1,7 @@
 import { PaybridgeError } from "./errors.js";
 import type {
   Balance,
+  Bank,
   BankAccount,
   CalculateFeeParams,
   Charge,
@@ -58,6 +59,13 @@ interface RawBankAccountResponse {
   account_number: string;
   account_holder_name: string;
   created_at?: string;
+}
+
+interface RawBankResponse {
+  code: string;
+  name: string;
+  logo_url: string | null;
+  sort_order: number;
 }
 
 interface RawPayoutResponse {
@@ -268,6 +276,23 @@ export class PaybridgeClient {
       : "/v1/balance";
     const raw = await this.requestJson<RawBalanceResponse>("GET", path, {});
     return { currency: raw.currency, amount: raw.amount };
+  }
+
+  /**
+   * `GET /v1/banks`. Public and unauthenticated (an API key is sent
+   * anyway, harmlessly — the route ignores it), active-only, ordered by
+   * `sortOrder`. Useful for validating/prompting a `bankCode` before
+   * calling {@link PaybridgeClient.registerBankAccount} instead of
+   * hardcoding a bank list client-side.
+   */
+  async listBanks(): Promise<Bank[]> {
+    const raw = await this.requestJson<RawBankResponse[]>("GET", "/v1/banks", {});
+    return raw.map((b) => ({
+      code: b.code,
+      name: b.name,
+      ...(b.logo_url != null ? { logoUrl: b.logo_url } : {}),
+      sortOrder: b.sort_order,
+    }));
   }
 
   /** `GET /healthz`. No auth. Returns `true` when the body is `"ok"`. */

@@ -1,0 +1,51 @@
+{
+  "name": "@paybridge/mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing the Paybridge merchant API as tools for AI coding agents (Claude Code, Cursor, VS Code Copilot, ...)",
+  "type": "module",
+  "bin": {
+    "paybridge-mcp": "./dist/index.js"
+  },
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts src/server.ts --format esm --dts --clean && chmod +x dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "paybridge",
+    "mcp",
+    "model-context-protocol",
+    "payments"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@paybridge/sdk": "file:../typescript",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@types/node": "^24.10.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.20.7",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
