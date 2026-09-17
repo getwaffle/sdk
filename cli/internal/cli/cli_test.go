@@ -427,3 +427,66 @@ func TestAPIErrorsSurfaceServerMessage(t *testing.T) {
 		t.Errorf("want 422 APIError with server message, got %v", err)
 	}
 }
+
+// Regression tests for the CTO re-review blockers.
+
+func TestMaskKeyNeverPanicsOnShortKeys(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", ""},
+		{"a", "..."},
+		{"abc", "..."},
+		{"sk_1", "..."},
+		{"sk_12345", "sk_1..."},
+		{"sk_12345678", "sk_1..."},
+		{"sk_1234567890123", "sk_123456789..."},
+	}
+	for _, tc := range cases {
+		if got := maskKey(tc.in); got != tc.want {
+			t.Errorf("maskKey(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestDefaultDashboardURLMatchesPortedBaseURL(t *testing.T) {
+	cases := []struct {
+		base string
+		want string
+	}{
+		// the documented default — host WITH a port must still match
+		{"http://localhost:8080", "http://localhost:3001"},
+		{"http://127.0.0.1:8080", "http://localhost:3001"},
+		{"https://api.example.com", ""},
+		{"", ""},
+		// no scheme -> no host -> unknown
+		{"localhost:8080", ""},
+	}
+	for _, tc := range cases {
+		if got := defaultDashboardURL(tc.base); got != tc.want {
+			t.Errorf("defaultDashboardURL(%q) = %q, want %q", tc.base, got, tc.want)
+		}
+	}
+}
+
+func TestBrowserOpenableURLGate(t *testing.T) {
+	if got, ok := browserOpenableURL("http://localhost:3001/integrations/api-keys"); !ok || got != "http://localhost:3001/integrations/api-keys" {
+		t.Errorf("http URL refused: %q %v", got, ok)
+	}
+	if got, ok := browserOpenableURL("https://dashboard.example.com"); !ok {
+		t.Errorf("https URL refused: %q %v", got, ok)
+	}
+	for _, bad := range []string{
+		"javascript:alert(1)",
+		"file:///etc/passwd",
+		"ftp://x",
+		"//no-scheme.host",
+		"http://", // scheme but no host
+		"://broken",
+	} {
+		if got, ok := browserOpenableURL(bad); ok {
+			t.Errorf("browserOpenableURL(%q) = (%q, true), want refused", bad, got)
+		}
+	}
+}

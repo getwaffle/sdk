@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -63,15 +64,16 @@ func readLine(prompt string, hidden bool) (string, error) {
 // defaultDashboardURL guesses the merchant dashboard base URL for the
 // common local-dev topology (merchant dashboard on :3001). Non-local
 // deployments set dashboard_url via "paybridge configure --dashboard-url".
+// Hostname() (not the raw authority string) is matched so a port on the
+// base URL — e.g. the documented default http://localhost:8080 — still
+// resolves to the local dashboard.
 func defaultDashboardURL(baseURL string) string {
-	u := baseURL
-	u = strings.TrimPrefix(u, "https://")
-	u = strings.TrimPrefix(u, "http://")
-	if i := strings.Index(u, "/"); i >= 0 {
-		u = u[:i]
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Hostname() == "" {
+		return ""
 	}
-	switch u {
-	case "localhost", "127.0.0.1", "[::1]", "::1":
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
 		return "http://localhost:3001"
 	}
 	return ""
@@ -90,23 +92,42 @@ func dashboardAPIKeysURL(r *resolved) string {
 	return strings.TrimRight(base, "/") + "/integrations/api-keys"
 }
 
-// openBrowser best-effort opens url in the system browser; failure is
-// reported to stderr but never fatal — the URL is printed regardless.
-func openBrowser(url string) {
+// openBrowser best-effort opens an http/https URL in the system
+// browser; anything else (or a parse failure) is refused — the value
+// ultimately comes from user input, and xdg-open/open/rundll32 have a
+// history of argument-injection CVEs, so the scheme is validated before
+// the URL reaches exec.Command. Failure is reported to stderr but never
+// fatal — the URL is printed to stdout regardless.
+func openBrowser(rawURL string) {
+	openable, ok := browserOpenableURL(rawURL)
+	if !ok {
+		fmt.Fprintf(stderr, "(not opening %q — only http/https URLs are opened)\n", rawURL)
+		return
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", openable)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", openable)
 	default:
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", openable)
 	}
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(stderr, "(could not open a browser: %v — open the URL above manually)\n", err)
 	}
 }
 
+// browserOpenableURL returns the normalized URL to open and whether it
+// passed the http/https gate. The gate is the security boundary: only a
+// well-formed http(s) URL ever flows into a subprocess argument.
+func browserOpenableURL(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", false
+	}
+	return u.String(), true
+}
 func newLoginCmd() *cobra.Command {
 	var (
 		emailFlag  string
@@ -317,15 +338,20 @@ commands remains flag > PAYBRIDGE_API_KEY > this stored value.`,
 	return cmd
 }
 
-// maskKey renders just enough of a key to recognize it.
+// maskKey renders just enough of a key to recognize it. Keys shorter
+// than 8 chars are fully masked — never sliced out of range, never
+// echoed whole.
 func maskKey(k string) string {
-	if k == "" {
+	switch {
+	case k == "":
 		return ""
-	}
-	if len(k) <= 12 {
+	case len(k) < 8:
+		return "..."
+	case len(k) <= 12:
 		return k[:4] + "..."
+	default:
+		return k[:12] + "..."
 	}
-	return k[:12] + "..."
 }
 
 // mustConfigPath is config.Path for display; errors fall back to "<config file>".
