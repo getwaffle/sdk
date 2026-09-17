@@ -306,6 +306,14 @@ func (c *Client) CreateCharge(ctx context.Context, params CreateChargeParams, id
 type CalculateFeeParams struct {
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
+	// Channel narrows the quote to one product under the auto-routed
+	// provider (e.g. "qris" vs "virtual_account" can price differently).
+	// Empty matches only a wildcard-channel fee rule, mirroring the
+	// server's calculateFeeRequest. VABank narrows a
+	// Channel="virtual_account" quote to one bank; it is ignored by the
+	// server for non-VA quotes.
+	Channel string `json:"channel,omitempty"`
+	VABank  string `json:"va_bank,omitempty"`
 }
 
 // FeeQuote is the response shape for CalculateFee (POST
@@ -455,10 +463,36 @@ func (c *Client) GetBalance(ctx context.Context, currency string) (*Balance, err
 	if currency != "" {
 		query = url.Values{"currency": []string{currency}}
 	}
+
 	var out Balance
 	err := c.doJSON(ctx, http.MethodGet, "/v1/balance", query, nil, nil, &out)
 	if err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// --- Banks ---------------------------------------------------------------
+
+// Bank is one entry of GET /v1/banks's response: the public, active-only
+// bank directory (ordered by SortOrder) backing virtual-account bank
+// pickers. LogoURL is nil when the bank has no logo on file.
+type Bank struct {
+	Code      string  `json:"code"`
+	Name      string  `json:"name"`
+	LogoURL   *string `json:"logo_url"`
+	SortOrder int     `json:"sort_order"`
+}
+
+// ListBanks calls GET /v1/banks. The route is unauthenticated by design
+// (public checkout UI uses it before any API key exists); this SDK sends
+// the Authorization header only when the client was constructed with a
+// non-empty key, and the server accepts the call either way.
+func (c *Client) ListBanks(ctx context.Context) ([]Bank, error) {
+	var out []Bank
+	err := c.doJSON(ctx, http.MethodGet, "/v1/banks", nil, nil, nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }

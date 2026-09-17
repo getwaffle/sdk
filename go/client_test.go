@@ -245,6 +245,76 @@ func TestCalculateFee(t *testing.T) {
 	}
 }
 
+func TestCalculateFeeWithChannel(t *testing.T) {
+	var gotBody map[string]any
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(FeeQuote{
+			GrossAmount: 100000,
+			FeeAmount:   625,
+			NetAmount:   99375,
+			Currency:    "IDR",
+		})
+	})
+
+	quote, err := c.CalculateFee(context.Background(), CalculateFeeParams{
+		Amount:   100000,
+		Currency: "IDR",
+		Channel:  "virtual_account",
+		VABank:   "BCA",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["channel"] != "virtual_account" {
+		t.Errorf("body channel = %v, want virtual_account", gotBody["channel"])
+	}
+	if gotBody["va_bank"] != "BCA" {
+		t.Errorf("body va_bank = %v, want BCA", gotBody["va_bank"])
+	}
+	if quote.NetAmount != 99375 {
+		t.Errorf("NetAmount = %d, want 99375", quote.NetAmount)
+	}
+}
+
+func TestListBanks(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"code":"BCA","name":"BCA (Bank Central Asia)","logo_url":"/bank-logos/BCA.svg","sort_order":1},
+			{"code":"BRI","name":"Bank Rakyat Indonesia","logo_url":null,"sort_order":2}
+		]`))
+	})
+
+	banks, err := c.ListBanks(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/banks" {
+		t.Errorf("got %s %s, want GET /v1/banks", gotMethod, gotPath)
+	}
+	if gotAuth != "Bearer sk_test" {
+		t.Errorf("Authorization = %q, want Bearer sk_test", gotAuth)
+	}
+	if len(banks) != 2 {
+		t.Fatalf("len(banks) = %d, want 2", len(banks))
+	}
+	if banks[0].Code != "BCA" || banks[0].SortOrder != 1 {
+		t.Errorf("banks[0] = %+v", banks[0])
+	}
+	if banks[0].LogoURL == nil || *banks[0].LogoURL != "/bank-logos/BCA.svg" {
+		t.Errorf("banks[0].LogoURL = %v, want /bank-logos/BCA.svg", banks[0].LogoURL)
+	}
+	if banks[1].LogoURL != nil {
+		t.Errorf("banks[1].LogoURL = %v, want nil", banks[1].LogoURL)
+	}
+}
+
 func TestRegisterBankAccount(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotBody map[string]any
