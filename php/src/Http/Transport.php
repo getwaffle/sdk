@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Http;
+namespace Waffle\Http;
 
 /**
- * Minimal HTTP transport abstraction used by {@see \Paybridge\Client}.
+ * Minimal HTTP transport abstraction used by {@see \Waffle\Client}.
  * Deliberately smaller than a full PSR-18 `ClientInterface`/PSR-7
  * `RequestInterface` so this package pulls in zero HTTP dependencies; the
  * default implementation ({@see CurlTransport}) uses PHP's built-in curl
  * extension. Inject your own implementation (e.g. to adapt a PSR-18
- * client, or a fake for tests) via {@see \Paybridge\Client::__construct}.
+ * client, or a fake for tests) via {@see \Waffle\Client::__construct}.
  */
 interface Transport
 {

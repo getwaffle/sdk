@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Exception;
+namespace Waffle\Exception;
 
 /**
- * Thrown for every non-2xx response from the Paybridge merchant API.
+ * Thrown for every non-2xx response from the Waffle merchant API.
  *
  * Per the frozen API contract, every non-2xx body is `{"error": "message"}`
  * with the HTTP status code as the only machine-readable signal — there is
@@ -20,7 +20,7 @@ namespace Paybridge\Exception;
  *          with backoff.
  *   - 500: internal error.
  */
-final class PaybridgeApiException extends PaybridgeException
+final class WaffleApiException extends WaffleException
 {
     public function __construct(
         public readonly int $statusCode,

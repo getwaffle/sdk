@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Http;
+namespace Waffle\Http;
 
 /** Raw HTTP response, as returned by a {@see Transport}. */
 final class TransportResponse

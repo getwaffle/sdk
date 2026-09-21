@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Tests;
+namespace Waffle\Tests;
 
-use Paybridge\Client;
-use Paybridge\Dto\CalculateFeeParams;
-use Paybridge\Dto\CreateChargeParams;
-use Paybridge\Dto\CreatePayoutParams;
-use Paybridge\Dto\RegisterBankAccountParams;
-use Paybridge\Enum\ChargeStatus;
-use Paybridge\Enum\Mode;
-use Paybridge\Enum\PayoutStatus;
-use Paybridge\Exception\PaybridgeApiException;
-use Paybridge\Http\TransportResponse;
+use Waffle\Client;
+use Waffle\Dto\CalculateFeeParams;
+use Waffle\Dto\CreateChargeParams;
+use Waffle\Dto\CreatePayoutParams;
+use Waffle\Dto\RegisterBankAccountParams;
+use Waffle\Enum\ChargeStatus;
+use Waffle\Enum\Mode;
+use Waffle\Enum\PayoutStatus;
+use Waffle\Exception\WaffleApiException;
+use Waffle\Http\TransportResponse;
 use PHPUnit\Framework\TestCase;
 
 final class ClientTest extends TestCase
@@ -343,7 +343,7 @@ final class ClientTest extends TestCase
     }
 
     /** @dataProvider errorStatusProvider */
-    public function testNonTwoXxResponseThrowsPaybridgeApiExceptionWithStatusAndMessage(int $status, string $message): void
+    public function testNonTwoXxResponseThrowsWaffleApiExceptionWithStatusAndMessage(int $status, string $message): void
     {
         $responseBody = json_encode(['error' => $message], JSON_THROW_ON_ERROR);
         $transport = new FakeTransport(new TransportResponse($status, $responseBody));
@@ -351,14 +351,14 @@ final class ClientTest extends TestCase
 
         try {
             $client->calculateFee(new CalculateFeeParams(amount: 1000, currency: 'IDR'));
-            self::fail('Expected PaybridgeApiException to be thrown');
-        } catch (PaybridgeApiException $e) {
+            self::fail('Expected WaffleApiException to be thrown');
+        } catch (WaffleApiException $e) {
             self::assertSame($status, $e->statusCode);
             self::assertSame($message, $e->getMessage());
         }
     }
 
-    public function testHealthzNonTwoXxAlsoThrowsPaybridgeApiException(): void
+    public function testHealthzNonTwoXxAlsoThrowsWaffleApiException(): void
     {
         $responseBody = json_encode(['error' => 'service unavailable'], JSON_THROW_ON_ERROR);
         $transport = new FakeTransport(new TransportResponse(500, $responseBody));
@@ -366,8 +366,8 @@ final class ClientTest extends TestCase
 
         try {
             $client->healthz();
-            self::fail('Expected PaybridgeApiException to be thrown');
-        } catch (PaybridgeApiException $e) {
+            self::fail('Expected WaffleApiException to be thrown');
+        } catch (WaffleApiException $e) {
             self::assertSame(500, $e->statusCode);
             self::assertSame('service unavailable', $e->getMessage());
         }

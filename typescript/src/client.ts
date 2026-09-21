@@ -1,4 +1,4 @@
-import { PaybridgeError } from "./errors.js";
+import { WaffleError } from "./errors.js";
 import type {
   Balance,
   Bank,
@@ -15,7 +15,7 @@ import type {
 /** Default merchant API base URL — matches the local `docker-compose.yml` dev stack. */
 export const DEFAULT_BASE_URL = "http://localhost:8080";
 
-export interface PaybridgeClientOptions {
+export interface WaffleClientOptions {
   /** Merchant API key, sent as `Authorization: Bearer <apiKey>`. */
   apiKey: string;
   /**
@@ -88,21 +88,21 @@ interface RawErrorResponse {
 }
 
 /**
- * Client for the Paybridge merchant API (`:8080` by default).
+ * Client for the Waffle merchant API (`:8080` by default).
  *
  * The wire format is snake_case JSON; this SDK exposes camelCase request
  * and response fields and converts between the two internally. Every
  * money amount is an integer in the currency's minor unit — never a
  * float.
  */
-export class PaybridgeClient {
+export class WaffleClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(options: PaybridgeClientOptions) {
+  constructor(options: WaffleClientOptions) {
     if (!options.apiKey) {
-      throw new Error("PaybridgeClient: apiKey is required");
+      throw new Error("WaffleClient: apiKey is required");
     }
     this.apiKey = options.apiKey;
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -214,7 +214,7 @@ export class PaybridgeClient {
 
   /**
    * `GET /v1/bank-accounts`. Returns the caller's current active
-   * withdrawal account for their mode. Throws a {@link PaybridgeError}
+   * withdrawal account for their mode. Throws a {@link WaffleError}
    * with status 404 if the merchant has never registered one for this
    * mode.
    */
@@ -235,9 +235,9 @@ export class PaybridgeClient {
 
   /**
    * `POST /v1/payouts`. There is no `provider` field — like
-   * {@link PaybridgeClient.createCharge}, this auto-routes to the
+   * {@link WaffleClient.createCharge}, this auto-routes to the
    * merchant's highest-priority connected PSP. `idempotencyKey` is
-   * required, same semantics as {@link PaybridgeClient.createCharge}.
+   * required, same semantics as {@link WaffleClient.createCharge}.
    */
   async createPayout(
     params: CreatePayoutParams,
@@ -282,7 +282,7 @@ export class PaybridgeClient {
    * `GET /v1/banks`. Public and unauthenticated (an API key is sent
    * anyway, harmlessly — the route ignores it), active-only, ordered by
    * `sortOrder`. Useful for validating/prompting a `bankCode` before
-   * calling {@link PaybridgeClient.registerBankAccount} instead of
+   * calling {@link WaffleClient.registerBankAccount} instead of
    * hardcoding a bank list client-side.
    */
   async listBanks(): Promise<Bank[]> {
@@ -300,7 +300,7 @@ export class PaybridgeClient {
     const res = await this.fetchImpl(`${this.baseUrl}/healthz`, { method: "GET" });
     if (!res.ok) {
       const text = await res.text();
-      throw new PaybridgeError(res.status, text || res.statusText);
+      throw new WaffleError(res.status, text || res.statusText);
     }
     const text = await res.text();
     return text.trim() === "ok";
@@ -333,7 +333,7 @@ export class PaybridgeClient {
       } catch {
         // body wasn't JSON — fall back to statusText
       }
-      throw new PaybridgeError(res.status, message);
+      throw new WaffleError(res.status, message);
     }
 
     return (await res.json()) as T;

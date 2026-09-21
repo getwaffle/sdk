@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Dto;
+namespace Waffle\Dto;
 
 /**
- * Request body for {@see \Paybridge\Client::calculateFee()}
+ * Request body for {@see \Waffle\Client::calculateFee()}
  * (POST /v1/fees/calculate).
  *
  * There is no `provider` field — the quote resolves against the same

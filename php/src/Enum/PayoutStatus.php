@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Enum;
+namespace Waffle\Enum;
 
 /** Lifecycle status of a Payout (POST /v1/payouts). */
 enum PayoutStatus: string

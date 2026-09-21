@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Tests;
+namespace Waffle\Tests;
 
-use Paybridge\Http\Transport;
-use Paybridge\Http\TransportResponse;
+use Waffle\Http\Transport;
+use Waffle\Http\TransportResponse;
 
 /**
  * Records the single most recent request sent through it and returns a

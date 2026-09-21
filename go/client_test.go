@@ -1,4 +1,4 @@
-package paybridge
+package waffle
 
 import (
 	"context"

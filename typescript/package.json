@@ -1,7 +1,7 @@
 {
-  "name": "@paybridge/sdk",
+  "name": "@waffle/sdk",
   "version": "0.1.0",
-  "description": "TypeScript SDK for the Paybridge merchant API",
+  "description": "TypeScript SDK for the Waffle merchant API",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -25,7 +25,7 @@
     "test": "vitest run"
   },
   "keywords": [
-    "paybridge",
+    "waffle",
     "sdk",
     "payments"
   ],

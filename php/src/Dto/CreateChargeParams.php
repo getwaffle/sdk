@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Dto;
+namespace Waffle\Dto;
 
 /**
- * Request body for {@see \Paybridge\Client::createCharge()}
+ * Request body for {@see \Waffle\Client::createCharge()}
  * (POST /v1/charges).
  *
  * There is no `provider` field: the server always auto-routes to the

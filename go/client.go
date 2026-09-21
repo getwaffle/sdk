@@ -1,9 +1,9 @@
-// Package paybridge is a Go client SDK for the Paybridge merchant API
-// (the ":8080" listener in the Paybridge backend). It is deliberately its
-// own Go module (see go.mod: module github.com/very-good-labs/paybridge-go)
+// Package waffle is a Go client SDK for the Waffle merchant API
+// (the ":8080" listener in the Waffle backend). It is deliberately its
+// own Go module (see go.mod: module github.com/very-good-labs/waffle-go)
 // rather than a subpackage of the backend monorepo module
 // (github.com/very-good-labs/paybridge), so that merchants can
-// `go get github.com/very-good-labs/paybridge-go` without pulling in the
+// `go get github.com/very-good-labs/waffle-go` without pulling in the
 // entire backend (internal/httpapi, internal/domain, database drivers,
 // etc.) or being tied to the backend's release cadence. It has zero
 // dependency on the backend module.
@@ -11,7 +11,7 @@
 // All money amounts throughout this package are integers in the
 // currency's minor unit (e.g. IDR 12500 means Rp12.500) and are always
 // represented as int64 — never float64 — per the frozen API contract.
-package paybridge
+package waffle
 
 import (
 	"bytes"
@@ -30,7 +30,7 @@ import (
 // via docker-compose.yml (see docs/api-contract.md).
 const DefaultBaseURL = "http://localhost:8080"
 
-// Client is a Paybridge merchant API client. Construct with NewClient.
+// Client is a Waffle merchant API client. Construct with NewClient.
 // A Client is safe for concurrent use by multiple goroutines (it holds no
 // mutable state after construction; the underlying *http.Client is itself
 // safe for concurrent use).
@@ -66,7 +66,7 @@ func WithHTTPClient(hc *http.Client) Option {
 	}
 }
 
-// NewClient constructs a Paybridge merchant API client. apiKey is sent as
+// NewClient constructs a Waffle merchant API client. apiKey is sent as
 // `Authorization: Bearer <apiKey>` on every request except GET /healthz
 // (which requires no auth per the contract, but the header is harmless to
 // send and is omitted here to match the contract precisely).
@@ -82,12 +82,12 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	return c
 }
 
-// APIError represents a non-2xx JSON error response from the Paybridge
+// APIError represents a non-2xx JSON error response from the Waffle
 // API, of the frozen shape `{"error": "human-readable message"}`. Callers
 // can distinguish status codes (400/401/404/422/429/500 per the contract)
 // via errors.As:
 //
-//	var apiErr *paybridge.APIError
+//	var apiErr *waffle.APIError
 //	if errors.As(err, &apiErr) {
 //	    switch apiErr.StatusCode {
 //	    case http.StatusUnprocessableEntity:
@@ -102,7 +102,7 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("paybridge: HTTP %d: %s", e.StatusCode, e.Message)
+	return fmt.Sprintf("waffle: HTTP %d: %s", e.StatusCode, e.Message)
 }
 
 // errorBody mirrors the frozen `{"error": "..."}` shape used by every
@@ -120,7 +120,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("paybridge: encoding request body: %w", err)
+			return fmt.Errorf("waffle: encoding request body: %w", err)
 		}
 		reqBody = bytes.NewReader(b)
 	}
@@ -132,7 +132,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 
 	req, err := http.NewRequestWithContext(ctx, method, u, reqBody)
 	if err != nil {
-		return fmt.Errorf("paybridge: building request: %w", err)
+		return fmt.Errorf("waffle: building request: %w", err)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -146,13 +146,13 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("paybridge: performing request: %w", err)
+		return fmt.Errorf("waffle: performing request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("paybridge: reading response body: %w", err)
+		return fmt.Errorf("waffle: reading response body: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -161,7 +161,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 		if json.Unmarshal(respBody, &eb) == nil && eb.Error != "" {
 			msg = eb.Error
 		}
-		return fmt.Errorf("paybridge: request failed: %w", &APIError{
+		return fmt.Errorf("waffle: request failed: %w", &APIError{
 			StatusCode: resp.StatusCode,
 			Message:    msg,
 		})
@@ -169,7 +169,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 
 	if out != nil && len(respBody) > 0 {
 		if err := json.Unmarshal(respBody, out); err != nil {
-			return fmt.Errorf("paybridge: decoding response body: %w", err)
+			return fmt.Errorf("waffle: decoding response body: %w", err)
 		}
 	}
 	return nil
@@ -192,7 +192,7 @@ func GenerateIdempotencyKey() string {
 		// panicking here matches the stdlib's own crypto/rand
 		// behavior guidance rather than silently returning a
 		// non-unique key.
-		panic("paybridge: crypto/rand unavailable: " + err.Error())
+		panic("waffle: crypto/rand unavailable: " + err.Error())
 	}
 	return hex.EncodeToString(b[:])
 }
@@ -203,16 +203,16 @@ func GenerateIdempotencyKey() string {
 func (c *Client) Healthz(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/healthz", nil)
 	if err != nil {
-		return fmt.Errorf("paybridge: building request: %w", err)
+		return fmt.Errorf("waffle: building request: %w", err)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("paybridge: performing request: %w", err)
+		return fmt.Errorf("waffle: performing request: %w", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("paybridge: request failed: %w", &APIError{
+		return fmt.Errorf("waffle: request failed: %w", &APIError{
 			StatusCode: resp.StatusCode,
 			Message:    string(body),
 		})
@@ -286,7 +286,7 @@ type Charge struct {
 // limit exceeded.
 func (c *Client) CreateCharge(ctx context.Context, params CreateChargeParams, idempotencyKey string) (*Charge, error) {
 	if idempotencyKey == "" {
-		return nil, errors.New("paybridge: idempotencyKey is required for CreateCharge")
+		return nil, errors.New("waffle: idempotencyKey is required for CreateCharge")
 	}
 	var out Charge
 	err := c.doJSON(ctx, http.MethodPost, "/v1/charges", nil,
@@ -421,7 +421,7 @@ type Payout struct {
 // *APIError with StatusCode 422 and that Message, same as any other 422.
 func (c *Client) CreatePayout(ctx context.Context, params CreatePayoutParams, idempotencyKey string) (*Payout, error) {
 	if idempotencyKey == "" {
-		return nil, errors.New("paybridge: idempotencyKey is required for CreatePayout")
+		return nil, errors.New("waffle: idempotencyKey is required for CreatePayout")
 	}
 	var out Payout
 	err := c.doJSON(ctx, http.MethodPost, "/v1/payouts", nil,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { PaybridgeClient } from "./client.js";
-import { PaybridgeError } from "./errors.js";
+import { WaffleClient } from "./client.js";
+import { WaffleError } from "./errors.js";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -13,13 +13,13 @@ function textResponse(status: number, body: string): Response {
   return new Response(body, { status });
 }
 
-describe("PaybridgeClient", () => {
+describe("WaffleClient", () => {
   let fetchMock: Mock;
-  let client: PaybridgeClient;
+  let client: WaffleClient;
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    client = new PaybridgeClient({
+    client = new WaffleClient({
       apiKey: "sk_test_123",
       baseUrl: "http://localhost:8080",
       fetch: fetchMock as unknown as typeof fetch,
@@ -340,17 +340,17 @@ describe("PaybridgeClient", () => {
     expect(healthy).toBe(true);
   });
 
-  it("throws a typed PaybridgeError with status and message on 401", async () => {
+  it("throws a typed WaffleError with status and message on 401", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: "invalid api key" }));
 
     await expect(
       client.createCharge({ amount: 1000, currency: "IDR" }, "idem-key-4"),
     ).rejects.toMatchObject(
-      new PaybridgeError(401, "invalid api key"),
+      new WaffleError(401, "invalid api key"),
     );
   });
 
-  it("throws a typed PaybridgeError distinguishing 422 business rejection", async () => {
+  it("throws a typed WaffleError distinguishing 422 business rejection", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(422, { error: "insufficient available balance" }),
     );
@@ -362,12 +362,12 @@ describe("PaybridgeClient", () => {
       )
       .catch((e: unknown) => e);
 
-    expect(error).toBeInstanceOf(PaybridgeError);
-    expect((error as PaybridgeError).status).toBe(422);
-    expect((error as PaybridgeError).message).toBe("insufficient available balance");
+    expect(error).toBeInstanceOf(WaffleError);
+    expect((error as WaffleError).status).toBe(422);
+    expect((error as WaffleError).message).toBe("insufficient available balance");
   });
 
-  it("throws a typed PaybridgeError distinguishing 429 fraud/rate limit", async () => {
+  it("throws a typed WaffleError distinguishing 429 fraud/rate limit", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(429, { error: "velocity limit exceeded" }),
     );
@@ -376,8 +376,8 @@ describe("PaybridgeClient", () => {
       .createCharge({ amount: 1000, currency: "IDR" }, "idem-key-6")
       .catch((e: unknown) => e);
 
-    expect(error).toBeInstanceOf(PaybridgeError);
-    expect((error as PaybridgeError).status).toBe(429);
-    expect((error as PaybridgeError).message).toBe("velocity limit exceeded");
+    expect(error).toBeInstanceOf(WaffleError);
+    expect((error as WaffleError).status).toBe(429);
+    expect((error as WaffleError).message).toBe("velocity limit exceeded");
   });
 });

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Http;
+namespace Waffle\Http;
 
-use Paybridge\Exception\PaybridgeException;
+use Waffle\Exception\WaffleException;
 
 /** Default {@see Transport} implementation, backed by PHP's curl extension. */
 final class CurlTransport implements Transport
@@ -17,7 +17,7 @@ final class CurlTransport implements Transport
     {
         $handle = curl_init($url);
         if ($handle === false) {
-            throw new PaybridgeException("Paybridge: failed to initialize curl handle for {$url}");
+            throw new WaffleException("Waffle: failed to initialize curl handle for {$url}");
         }
 
         $headerLines = [];
@@ -40,7 +40,7 @@ final class CurlTransport implements Transport
         $responseBody = curl_exec($handle);
         if ($responseBody === false) {
             $error = curl_error($handle);
-            throw new PaybridgeException("Paybridge: HTTP request to {$url} failed: {$error}");
+            throw new WaffleException("Waffle: HTTP request to {$url} failed: {$error}");
         }
 
         $statusCode = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);

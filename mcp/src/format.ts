@@ -1,5 +1,5 @@
 /**
- * Renders an integer minor-unit amount the way paybridge shows money to
+ * Renders an integer minor-unit amount the way waffle shows money to
  * humans everywhere else in the product (`internal/notify.FormatMoney`,
  * the dashboards' `formatMoney`): dot-grouped with an `Rp` prefix for
  * IDR ("Rp100.000"), never a bare integer or a locale-comma. This is for

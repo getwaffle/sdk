@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Dto;
+namespace Waffle\Dto;
 
-use Paybridge\Enum\Mode;
-use Paybridge\Enum\PayoutStatus;
+use Waffle\Enum\Mode;
+use Waffle\Enum\PayoutStatus;
 
 /** Response body for POST /v1/payouts (201). */
 final class Payout implements \JsonSerializable

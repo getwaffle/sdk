@@ -1,6 +1,6 @@
-# paybridge/sdk (PHP)
+# waffle/sdk (PHP)
 
-PHP SDK for the Paybridge merchant API (`:8080` by default). Requires
+PHP SDK for the Waffle merchant API (`:8080` by default). Requires
 PHP 8.1+ and the `curl`/`json` extensions (both bundled with virtually
 every PHP install). No heavy HTTP framework dependency — requests go
 through PHP's built-in curl extension via a small injectable `Transport`
@@ -9,12 +9,12 @@ interface (useful for tests).
 ## Install
 
 ```bash
-composer require paybridge/sdk
+composer require waffle/sdk
 ```
 
 ## Field naming
 
-The Paybridge wire format is snake_case JSON. This SDK exposes
+The Waffle wire format is snake_case JSON. This SDK exposes
 **camelCase** properties on every request/response DTO (matching the
 sibling TypeScript SDK) and converts to/from snake_case internally via
 each DTO's `toArray()`/`fromArray()` — you never write `gross_amount` or
@@ -26,10 +26,10 @@ currency's minor unit; **never** a `float`.
 ```php
 <?php
 
-use Paybridge\Client;
+use Waffle\Client;
 
 $client = new Client(
-    apiKey: getenv('PAYBRIDGE_API_KEY'),
+    apiKey: getenv('WAFFLE_API_KEY'),
     // Defaults to http://localhost:8080 (the local docker-compose dev
     // stack). No public production hostname is defined in the API
     // contract yet — pass your deployment's URL once one exists.
@@ -39,18 +39,18 @@ $client = new Client(
 
 ## Errors
 
-Every non-2xx response throws `Paybridge\Exception\PaybridgeApiException`
-(extending `Paybridge\Exception\PaybridgeException`, so callers can catch
+Every non-2xx response throws `Waffle\Exception\WaffleApiException`
+(extending `Waffle\Exception\WaffleException`, so callers can catch
 broadly or narrowly), carrying the HTTP `statusCode` and the server's
 `error` message — there is no machine-readable error code, status is the
 only signal:
 
 ```php
-use Paybridge\Exception\PaybridgeApiException;
+use Waffle\Exception\WaffleApiException;
 
 try {
     $client->createCharge($params, IdempotencyKey::generate());
-} catch (PaybridgeApiException $e) {
+} catch (WaffleApiException $e) {
     match (true) {
         $e->statusCode === 401 => /* bad/missing API key */ null,
         $e->statusCode === 422 => /* well-formed request rejected by business logic
@@ -76,7 +76,7 @@ the original charge/payout instead of creating a duplicate. Use the
 from `random_bytes()` — no external dependency required):
 
 ```php
-use Paybridge\IdempotencyKey;
+use Waffle\IdempotencyKey;
 
 $key = IdempotencyKey::generate();
 ```
@@ -93,8 +93,8 @@ admin-controlled decision, never something a merchant names or is told.
 If the merchant has zero connected PSPs this is a `422`.
 
 ```php
-use Paybridge\Dto\CreateChargeParams;
-use Paybridge\IdempotencyKey;
+use Waffle\Dto\CreateChargeParams;
+use Waffle\IdempotencyKey;
 
 $charge = $client->createCharge(
     new CreateChargeParams(
@@ -122,7 +122,7 @@ provider `createCharge` would actually use, so a previewed fee always
 matches what a real charge would be billed.
 
 ```php
-use Paybridge\Dto\CalculateFeeParams;
+use Waffle\Dto\CalculateFeeParams;
 
 $quote = $client->calculateFee(new CalculateFeeParams(
     amount: 100000,
@@ -136,7 +136,7 @@ $quote = $client->calculateFee(new CalculateFeeParams(
 `POST /v1/bank-accounts`. All three fields are required.
 
 ```php
-use Paybridge\Dto\RegisterBankAccountParams;
+use Waffle\Dto\RegisterBankAccountParams;
 
 $account = $client->registerBankAccount(new RegisterBankAccountParams(
     bankCode: 'BCA',
@@ -156,8 +156,8 @@ explicitly; that asymmetry with charges is gone). A `422` with message
 balance can't cover the payout.
 
 ```php
-use Paybridge\Dto\CreatePayoutParams;
-use Paybridge\IdempotencyKey;
+use Waffle\Dto\CreatePayoutParams;
+use Waffle\IdempotencyKey;
 
 $payout = $client->createPayout(
     new CreatePayoutParams(
@@ -190,7 +190,7 @@ $balance = $client->getBalance('IDR');
 ### `healthz(): bool`
 
 `GET /healthz`. No auth. Returns `true` when the server returns `200
-"ok"`; throws `PaybridgeApiException` on a non-2xx response, `false` for
+"ok"`; throws `WaffleApiException` on a non-2xx response, `false` for
 any other 2xx body.
 
 ```php
@@ -199,14 +199,14 @@ $healthy = $client->healthz();
 
 ## Custom transport
 
-Pass a `Paybridge\Http\Transport` implementation as the third
+Pass a `Waffle\Http\Transport` implementation as the third
 `Client` constructor argument to use a custom HTTP layer (useful for
 tests, or to route through a PSR-18 client of your own):
 
 ```php
-use Paybridge\Client;
-use Paybridge\Http\Transport;
-use Paybridge\Http\TransportResponse;
+use Waffle\Client;
+use Waffle\Http\Transport;
+use Waffle\Http\TransportResponse;
 
 final class MyTransport implements Transport
 {

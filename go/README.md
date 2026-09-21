@@ -1,9 +1,9 @@
-# paybridge-go
+# waffle-go
 
-A Go client SDK for the Paybridge **merchant API** (the `:8080` listener;
+A Go client SDK for the Waffle **merchant API** (the `:8080` listener;
 see `docs/api-contract.md` in the main repo for the frozen contract this
 SDK implements). This is a standalone Go module — `go get
-github.com/very-good-labs/paybridge-go` — with no dependency on the
+github.com/very-good-labs/waffle-go` — with no dependency on the
 backend monorepo module.
 
 All money amounts are integers in the currency's minor unit (e.g. IDR
@@ -13,7 +13,7 @@ All money amounts are integers in the currency's minor unit (e.g. IDR
 ## Install
 
 ```sh
-go get github.com/very-good-labs/paybridge-go
+go get github.com/very-good-labs/waffle-go
 ```
 
 ## Quick start
@@ -26,13 +26,13 @@ import (
 	"fmt"
 	"log"
 
-	paybridge "github.com/very-good-labs/paybridge-go"
+	waffle "github.com/very-good-labs/waffle-go"
 )
 
 func main() {
-	client := paybridge.NewClient(
+	client := waffle.NewClient(
 		"sk_live_your_api_key",
-		paybridge.WithBaseURL("https://api.example.com"), // default: http://localhost:8080
+		waffle.WithBaseURL("https://api.example.com"), // default: http://localhost:8080
 	)
 
 	ctx := context.Background()
@@ -48,30 +48,30 @@ func main() {
 ```go
 // Default base URL is http://localhost:8080, matching local dev via
 // docker-compose.yml. Override for staging/production:
-client := paybridge.NewClient("sk_live_...", paybridge.WithBaseURL("https://api.example.com"))
+client := waffle.NewClient("sk_live_...", waffle.WithBaseURL("https://api.example.com"))
 
 // Override the underlying *http.Client (timeouts, transport, tracing, ...):
-client := paybridge.NewClient("sk_live_...",
-	paybridge.WithHTTPClient(&http.Client{Timeout: 10 * time.Second}),
+client := waffle.NewClient("sk_live_...",
+	waffle.WithHTTPClient(&http.Client{Timeout: 10 * time.Second}),
 )
 
 // Options compose:
-client := paybridge.NewClient("sk_live_...",
-	paybridge.WithBaseURL("https://api.example.com"),
-	paybridge.WithHTTPClient(&http.Client{Timeout: 10 * time.Second}),
+client := waffle.NewClient("sk_live_...",
+	waffle.WithBaseURL("https://api.example.com"),
+	waffle.WithHTTPClient(&http.Client{Timeout: 10 * time.Second}),
 )
 ```
 
 ## Error handling
 
-Every non-2xx response is surfaced as a `*paybridge.APIError` (wrapped, so
+Every non-2xx response is surfaced as a `*waffle.APIError` (wrapped, so
 `errors.As` works), carrying the HTTP status code and the `error` message
 from the response body:
 
 ```go
 charge, err := client.CreateCharge(ctx, params, idemKey)
 if err != nil {
-	var apiErr *paybridge.APIError
+	var apiErr *waffle.APIError
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {
 		case http.StatusUnprocessableEntity: // 422
@@ -82,7 +82,7 @@ if err != nil {
 		case http.StatusUnauthorized: // 401
 			// bad/missing API key
 		}
-		log.Printf("paybridge error %d: %s", apiErr.StatusCode, apiErr.Message)
+		log.Printf("waffle error %d: %s", apiErr.StatusCode, apiErr.Message)
 	}
 	return err
 }
@@ -95,7 +95,7 @@ if err != nil {
 scheme (e.g. an internal order id) or the provided helper:
 
 ```go
-key := paybridge.GenerateIdempotencyKey() // crypto/rand-backed, 32 hex chars
+key := waffle.GenerateIdempotencyKey() // crypto/rand-backed, 32 hex chars
 ```
 
 Retrying a request with the same key returns the original resource
@@ -112,7 +112,7 @@ admin-controlled decision the merchant never names or is told. If the
 merchant has zero connected PSPs, this is a `422`, not a silent guess.
 
 ```go
-charge, err := client.CreateCharge(ctx, paybridge.CreateChargeParams{
+charge, err := client.CreateCharge(ctx, waffle.CreateChargeParams{
 	Amount:           100000, // Rp100.000, integer minor units
 	Currency:         "IDR",
 	Description:      "Order #1234",
@@ -120,7 +120,7 @@ charge, err := client.CreateCharge(ctx, paybridge.CreateChargeParams{
 	ReturnURL:        "https://shop.example.com/return",
 	ExpiresInMinutes: 60,
 	Metadata:         map[string]string{"order_id": "1234"},
-}, paybridge.GenerateIdempotencyKey())
+}, waffle.GenerateIdempotencyKey())
 if err != nil {
 	log.Fatal(err)
 }
@@ -140,7 +140,7 @@ actually use, so a previewed fee always matches what a real charge would
 be billed.
 
 ```go
-quote, err := client.CalculateFee(ctx, paybridge.CalculateFeeParams{
+quote, err := client.CalculateFee(ctx, waffle.CalculateFeeParams{
 	Amount:   100000,
 	Currency: "IDR",
 })
@@ -155,7 +155,7 @@ fmt.Println(quote.FeeAmount, quote.NetAmount)
 All three fields are required (the server returns `400` if any is empty).
 
 ```go
-account, err := client.RegisterBankAccount(ctx, paybridge.RegisterBankAccountParams{
+account, err := client.RegisterBankAccount(ctx, waffle.RegisterBankAccountParams{
 	BankCode:          "BCA",
 	AccountNumber:     "1234567890",
 	AccountHolderName: "Budi Santoso",
@@ -174,13 +174,13 @@ payouts once required naming a provider explicitly is gone. Requires an
 `Idempotency-Key`, same semantics as `CreateCharge`.
 
 ```go
-payout, err := client.CreatePayout(ctx, paybridge.CreatePayoutParams{
+payout, err := client.CreatePayout(ctx, waffle.CreatePayoutParams{
 	BankAccountID: account.ID,
 	Amount:        40000,
 	Currency:      "IDR",
-}, paybridge.GenerateIdempotencyKey())
+}, waffle.GenerateIdempotencyKey())
 if err != nil {
-	var apiErr *paybridge.APIError
+	var apiErr *waffle.APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity {
 		// e.g. apiErr.Message == "insufficient available balance"
 	}
@@ -212,7 +212,7 @@ fmt.Println(balance.Currency, balance.Amount)
 ### `Healthz` — `GET /healthz`
 
 No auth required. Returns `nil` on a 2xx response (the endpoint returns
-plain text `"ok"`, not JSON), or a wrapped `*paybridge.APIError` otherwise.
+plain text `"ok"`, not JSON), or a wrapped `*waffle.APIError` otherwise.
 
 ```go
 if err := client.Healthz(ctx); err != nil {

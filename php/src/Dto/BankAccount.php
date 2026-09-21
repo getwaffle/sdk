@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Dto;
+namespace Waffle\Dto;
 
 /** Response body for POST /v1/bank-accounts (201) and GET /v1/bank-accounts (200). */
 final class BankAccount implements \JsonSerializable

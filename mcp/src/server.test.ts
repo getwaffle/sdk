@@ -14,7 +14,7 @@ function textResponse(status: number, body: string): Response {
   return new Response(body, { status });
 }
 
-describe("paybridge MCP server", () => {
+describe("waffle MCP server", () => {
   let fetchMock: Mock;
   let handler: McpHttpHandler;
   let client: Client;
@@ -22,7 +22,7 @@ describe("paybridge MCP server", () => {
   beforeEach(async () => {
     fetchMock = vi.fn();
     handler = createMcpHandler(() =>
-      createServer({ apiKey: "sk_test_123", baseUrl: "http://paybridge.test", fetch: fetchMock as unknown as typeof fetch }),
+      createServer({ apiKey: "sk_test_123", baseUrl: "http://waffle.test", fetch: fetchMock as unknown as typeof fetch }),
     );
     const transport = new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
       fetch: (url, init) => handler.fetch(new Request(url, init)),
@@ -36,19 +36,19 @@ describe("paybridge MCP server", () => {
     await handler.close();
   });
 
-  it("advertises every paybridge tool", async () => {
+  it("advertises every waffle tool", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
       [
-        "paybridge_calculate_fee",
-        "paybridge_create_charge",
-        "paybridge_create_payout",
-        "paybridge_get_balance",
-        "paybridge_get_bank_account",
-        "paybridge_healthz",
-        "paybridge_list_banks",
-        "paybridge_register_bank_account",
+        "waffle_calculate_fee",
+        "waffle_create_charge",
+        "waffle_create_payout",
+        "waffle_get_balance",
+        "waffle_get_bank_account",
+        "waffle_healthz",
+        "waffle_list_banks",
+        "waffle_register_bank_account",
       ].sort(),
     );
   });
@@ -69,12 +69,12 @@ describe("paybridge MCP server", () => {
     );
 
     const result = await client.callTool({
-      name: "paybridge_create_charge",
+      name: "waffle_create_charge",
       arguments: { amount: 100000, currency: "IDR", description: "Order #1" },
     });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://paybridge.test/v1/charges");
+    expect(url).toBe("http://waffle.test/v1/charges");
     const headers = init.headers as Record<string, string>;
     expect(headers["Idempotency-Key"]).toBeTruthy();
     expect(JSON.parse(init.body as string)).not.toHaveProperty("provider");
@@ -98,8 +98,8 @@ describe("paybridge MCP server", () => {
       }),
     );
 
-    await client.callTool({ name: "paybridge_create_charge", arguments: { amount: 50000, currency: "IDR" } });
-    await client.callTool({ name: "paybridge_create_charge", arguments: { amount: 50000, currency: "IDR" } });
+    await client.callTool({ name: "waffle_create_charge", arguments: { amount: 50000, currency: "IDR" } });
+    await client.callTool({ name: "waffle_create_charge", arguments: { amount: 50000, currency: "IDR" } });
 
     const firstHeaders = (fetchMock.mock.calls[0] as [string, RequestInit])[1].headers as Record<string, string>;
     const secondHeaders = (fetchMock.mock.calls[1] as [string, RequestInit])[1].headers as Record<string, string>;
@@ -110,7 +110,7 @@ describe("paybridge MCP server", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(422, { error: "insufficient available balance" }));
 
     const result = await client.callTool({
-      name: "paybridge_create_payout",
+      name: "waffle_create_payout",
       arguments: { bankAccountId: "ba_1", amount: 999999999, currency: "IDR" },
     });
 
@@ -121,7 +121,7 @@ describe("paybridge MCP server", () => {
   });
 
   it("rejects a missing required argument before the handler runs", async () => {
-    const result = await client.callTool({ name: "paybridge_calculate_fee", arguments: { amount: 1000 } });
+    const result = await client.callTool({ name: "waffle_calculate_fee", arguments: { amount: 1000 } });
     expect(result.isError).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -129,11 +129,11 @@ describe("paybridge MCP server", () => {
   it("turns a 404 on get_bank_account into a recoverable isError hint instead of a generic failure", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: "not found" }));
 
-    const result = await client.callTool({ name: "paybridge_get_bank_account", arguments: {} });
+    const result = await client.callTool({ name: "waffle_get_bank_account", arguments: {} });
 
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "";
-    expect(text).toContain("paybridge_register_bank_account");
+    expect(text).toContain("waffle_register_bank_account");
   });
 
   it("maps listBanks results and omits a null logo_url", async () => {
@@ -141,7 +141,7 @@ describe("paybridge MCP server", () => {
       jsonResponse(200, [{ code: "BCA", name: "Bank Central Asia", logo_url: null, sort_order: 1 }]),
     );
 
-    const result = await client.callTool({ name: "paybridge_list_banks", arguments: {} });
+    const result = await client.callTool({ name: "waffle_list_banks", arguments: {} });
 
     expect(result.structuredContent).toEqual({ banks: [{ code: "BCA", name: "Bank Central Asia", sortOrder: 1 }] });
   });
@@ -149,17 +149,17 @@ describe("paybridge MCP server", () => {
   it("resolves get_balance with no query param when currency is omitted, matching the SDK's server-default behavior", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { currency: "IDR", amount: 287500 }));
 
-    const result = await client.callTool({ name: "paybridge_get_balance", arguments: {} });
+    const result = await client.callTool({ name: "waffle_get_balance", arguments: {} });
 
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://paybridge.test/v1/balance");
+    expect(url).toBe("http://waffle.test/v1/balance");
     expect(result.structuredContent).toEqual({ currency: "IDR", amount: 287500 });
   });
 
   it("reports healthz as unhealthy without throwing when the API is down", async () => {
     fetchMock.mockResolvedValueOnce(textResponse(500, "unavailable"));
 
-    const result = await client.callTool({ name: "paybridge_healthz", arguments: {} });
+    const result = await client.callTool({ name: "waffle_healthz", arguments: {} });
 
     expect(result.isError).toBe(true);
   });

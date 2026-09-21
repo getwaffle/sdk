@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Dto;
+namespace Waffle\Dto;
 
 /**
  * Response body for GET /v1/balance (200). This is withdrawable balance —

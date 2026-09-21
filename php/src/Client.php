@@ -2,24 +2,24 @@
 
 declare(strict_types=1);
 
-namespace Paybridge;
+namespace Waffle;
 
-use Paybridge\Dto\BankAccount;
-use Paybridge\Dto\Balance;
-use Paybridge\Dto\CalculateFeeParams;
-use Paybridge\Dto\Charge;
-use Paybridge\Dto\CreateChargeParams;
-use Paybridge\Dto\CreatePayoutParams;
-use Paybridge\Dto\FeeQuote;
-use Paybridge\Dto\Payout;
-use Paybridge\Dto\RegisterBankAccountParams;
-use Paybridge\Exception\PaybridgeApiException;
-use Paybridge\Http\CurlTransport;
-use Paybridge\Http\Transport;
-use Paybridge\Http\TransportResponse;
+use Waffle\Dto\BankAccount;
+use Waffle\Dto\Balance;
+use Waffle\Dto\CalculateFeeParams;
+use Waffle\Dto\Charge;
+use Waffle\Dto\CreateChargeParams;
+use Waffle\Dto\CreatePayoutParams;
+use Waffle\Dto\FeeQuote;
+use Waffle\Dto\Payout;
+use Waffle\Dto\RegisterBankAccountParams;
+use Waffle\Exception\WaffleApiException;
+use Waffle\Http\CurlTransport;
+use Waffle\Http\Transport;
+use Waffle\Http\TransportResponse;
 
 /**
- * Client for the Paybridge merchant API (`:8080` by default).
+ * Client for the Waffle merchant API (`:8080` by default).
  *
  * The wire format is snake_case JSON; this SDK exposes camelCase
  * properties on every DTO and converts to/from snake_case internally —
@@ -53,7 +53,7 @@ final class Client
     public function __construct(string $apiKey, ?string $baseUrl = null, ?Transport $transport = null)
     {
         if ($apiKey === '') {
-            throw new \InvalidArgumentException('Paybridge\\Client: apiKey is required');
+            throw new \InvalidArgumentException('Waffle\\Client: apiKey is required');
         }
 
         $this->apiKey = $apiKey;
@@ -76,7 +76,7 @@ final class Client
      * or your own scheme (e.g. an internal order id); this SDK never
      * generates one silently.
      *
-     * @throws PaybridgeApiException 400 malformed amount/currency; 422 no
+     * @throws WaffleApiException 400 malformed amount/currency; 422 no
      *   gateway/fee rule for the resolved provider, or provider call
      *   failed; 429 fraud velocity limit exceeded.
      */
@@ -125,7 +125,7 @@ final class Client
      * GET /v1/bank-accounts. Returns the caller's current active
      * withdrawal account for their mode.
      *
-     * @throws PaybridgeApiException 404 if the merchant has never
+     * @throws WaffleApiException 404 if the merchant has never
      *   registered one for this mode.
      */
     public function getActiveBankAccount(): BankAccount
@@ -141,7 +141,7 @@ final class Client
      * the merchant's highest-priority connected PSP. `$idempotencyKey`
      * is required, same semantics as {@see self::createCharge()}.
      *
-     * @throws PaybridgeApiException 422 with message
+     * @throws WaffleApiException 422 with message
      *   "insufficient available balance" when the merchant's withdrawable
      *   balance can't cover the payout.
      */
@@ -220,7 +220,7 @@ final class Client
 
         $decoded = json_decode($response->body, associative: true, flags: JSON_THROW_ON_ERROR);
         if (!is_array($decoded)) {
-            throw new PaybridgeApiException($response->statusCode, 'unexpected non-object response body');
+            throw new WaffleApiException($response->statusCode, 'unexpected non-object response body');
         }
 
         /** @var array<string,mixed> $decoded */
@@ -256,6 +256,6 @@ final class Client
             // Body wasn't JSON — fall back to the raw body/status above.
         }
 
-        throw new PaybridgeApiException($response->statusCode, $message);
+        throw new WaffleApiException($response->statusCode, $message);
     }
 }

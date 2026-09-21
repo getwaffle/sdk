@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Tests;
+namespace Waffle\Tests;
 
-use Paybridge\IdempotencyKey;
+use Waffle\IdempotencyKey;
 use PHPUnit\Framework\TestCase;
 
 final class IdempotencyKeyTest extends TestCase

@@ -1,18 +1,18 @@
-# @paybridge/sdk
+# @waffle/sdk
 
-TypeScript SDK for the Paybridge merchant API. Works in Node (>=18),
+TypeScript SDK for the Waffle merchant API. Works in Node (>=18),
 browsers, and edge runtimes — it uses the global `fetch`, not a
 Node-only HTTP client.
 
 ## Install
 
 ```bash
-npm install @paybridge/sdk
+npm install @waffle/sdk
 ```
 
 ## Field naming
 
-The Paybridge wire format is snake_case JSON. This SDK exposes
+The Waffle wire format is snake_case JSON. This SDK exposes
 **camelCase** fields on every request and response type and converts to
 and from snake_case internally — you never write `gross_amount` or
 `bank_account_id` yourself. All money amounts are integers in the
@@ -21,10 +21,10 @@ currency's minor unit; never treat an amount field as a float.
 ## Quick start
 
 ```ts
-import { PaybridgeClient, generateIdempotencyKey } from "@paybridge/sdk";
+import { WaffleClient, generateIdempotencyKey } from "@waffle/sdk";
 
-const client = new PaybridgeClient({
-  apiKey: process.env.PAYBRIDGE_API_KEY!,
+const client = new WaffleClient({
+  apiKey: process.env.WAFFLE_API_KEY!,
   // Defaults to http://localhost:8080 (the local docker-compose dev
   // stack). No public production hostname is defined in the API
   // contract yet — pass your deployment's URL once one exists.
@@ -34,17 +34,17 @@ const client = new PaybridgeClient({
 
 ## Errors
 
-Every non-2xx response throws a `PaybridgeError` carrying the HTTP
+Every non-2xx response throws a `WaffleError` carrying the HTTP
 `status` and the server's `error` message (there is no machine-readable
 error code — status is the only signal):
 
 ```ts
-import { PaybridgeError } from "@paybridge/sdk";
+import { WaffleError } from "@waffle/sdk";
 
 try {
   await client.createCharge({ amount: 100000, currency: "IDR" }, generateIdempotencyKey());
 } catch (err) {
-  if (err instanceof PaybridgeError) {
+  if (err instanceof WaffleError) {
     if (err.status === 401) {
       // bad/missing API key
     } else if (err.status === 422) {
@@ -69,7 +69,7 @@ exported `generateIdempotencyKey()` helper (backed by
 `crypto.randomUUID()`) for convenience:
 
 ```ts
-import { generateIdempotencyKey } from "@paybridge/sdk";
+import { generateIdempotencyKey } from "@waffle/sdk";
 
 const key = generateIdempotencyKey();
 ```
@@ -181,7 +181,7 @@ const banks = await client.listBanks();
 ### `healthz()`
 
 `GET /healthz`. No auth. Resolves `true` when the server returns `200
-"ok"`; throws `PaybridgeError` otherwise.
+"ok"`; throws `WaffleError` otherwise.
 
 ```ts
 const healthy = await client.healthz();
@@ -193,7 +193,7 @@ Pass `fetch` in the constructor options to use a custom implementation
 (useful for testing or non-standard runtimes):
 
 ```ts
-const client = new PaybridgeClient({
+const client = new WaffleClient({
   apiKey: "sk_live_...",
   fetch: myFetchImplementation,
 });

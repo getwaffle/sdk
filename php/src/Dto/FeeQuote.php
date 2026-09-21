@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Dto;
+namespace Waffle\Dto;
 
 /**
  * Response body for POST /v1/fees/calculate (200). Preview-only: no

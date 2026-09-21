@@ -1,10 +1,10 @@
 {
-  "name": "@paybridge/mcp",
+  "name": "@waffle/mcp",
   "version": "0.1.0",
-  "description": "MCP server exposing the Paybridge merchant API as tools for AI coding agents (Claude Code, Cursor, VS Code Copilot, ...)",
+  "description": "MCP server exposing the Waffle merchant API as tools for AI coding agents (Claude Code, Cursor, VS Code Copilot, ...)",
   "type": "module",
   "bin": {
-    "paybridge-mcp": "./dist/index.js"
+    "waffle-mcp": "./dist/index.js"
   },
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
@@ -26,7 +26,7 @@
     "test": "vitest run"
   },
   "keywords": [
-    "paybridge",
+    "waffle",
     "mcp",
     "model-context-protocol",
     "payments"
@@ -34,7 +34,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
-    "@paybridge/sdk": "file:../typescript",
+    "@waffle/sdk": "file:../typescript",
     "zod": "^4.6.5"
   },
   "devDependencies": {

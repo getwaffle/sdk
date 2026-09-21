@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Paybridge;
+namespace Waffle;
 
 /**
  * Generates idempotency keys for {@see Client::createCharge} and

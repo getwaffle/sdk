@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Enum;
+namespace Waffle\Enum;
 
 /**
  * Whether a resource was created against a live or sandbox PSP connection.

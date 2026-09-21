@@ -1,9 +1,9 @@
 {
-    "name": "paybridge/sdk",
-    "description": "PHP SDK for the Paybridge merchant API (:8080)",
+    "name": "waffle/sdk",
+    "description": "PHP SDK for the Waffle merchant API (:8080)",
     "type": "library",
     "license": "MIT",
-    "keywords": ["paybridge", "payments", "sdk"],
+    "keywords": ["waffle", "payments", "sdk"],
     "require": {
         "php": ">=8.1",
         "ext-curl": "*",
@@ -14,12 +14,12 @@
     },
     "autoload": {
         "psr-4": {
-            "Paybridge\\": "src/"
+            "Waffle\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Paybridge\\Tests\\": "tests/"
+            "Waffle\\Tests\\": "tests/"
         }
     },
     "scripts": {

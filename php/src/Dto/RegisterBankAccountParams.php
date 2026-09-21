@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Paybridge\Dto;
+namespace Waffle\Dto;
 
 /**
- * Request body for {@see \Paybridge\Client::registerBankAccount()}
+ * Request body for {@see \Waffle\Client::registerBankAccount()}
  * (POST /v1/bank-accounts). All three fields are required — the server
  * returns 400 if any is empty.
  */
