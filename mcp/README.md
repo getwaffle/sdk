@@ -4,10 +4,15 @@ An [MCP](https://modelcontextprotocol.io) server that exposes the
 Waffle **merchant API** (the `:8080` listener; see
 `docs/api-contract.md` in the main repo) as tools an AI coding agent can
 call directly — create a test charge, check a withdrawable balance,
-register a payout bank account, preview a fee — the same surface
-[`@waffle/sdk`](../typescript) wraps for application code, not the
-admin API or the dashboard-session-authenticated `/v1/merchants/me/*`
-routes.
+withdraw to an already-registered bank account, preview a fee — the
+same surface [`@waffle/sdk`](../typescript) wraps for application code,
+not the admin API, not the dashboard-session-authenticated
+`/v1/merchants/me/*` routes, and not KYC/onboarding/branding — this
+server is deliberately scoped to money-movement only. Registering (or
+replacing) a withdrawal bank account is intentionally **not** a tool
+here, and never will be: it is dashboard-only, behind a human — an
+`Authorization` header (which is all an LLM host ever holds) must never
+be enough on its own to redirect where a merchant's payouts go.
 
 It speaks **stdio**: an MCP host (Claude Code, Cursor, VS Code Copilot,
 ...) launches it as a local child process per the [Model Context
@@ -70,8 +75,7 @@ reason.
 | `waffle_calculate_fee` | `POST /v1/fees/calculate` | yes | Preview only; no charge, no ledger write, no provider call. |
 | `waffle_create_charge` | `POST /v1/charges` | no | Creates a payment link / QRIS / virtual-account charge. |
 | `waffle_get_balance` | `GET /v1/balance` | yes | Withdrawable balance: settled paid charges minus non-failed payouts. |
-| `waffle_register_bank_account` | `POST /v1/bank-accounts` | no | Replaces the active withdrawal account for this mode; triggers a 6h security hold. |
-| `waffle_get_bank_account` | `GET /v1/bank-accounts` | yes | Returns a recoverable hint (not a generic error) when none is registered yet. |
+| `waffle_get_bank_account` | `GET /v1/bank-accounts` | yes | Returns a recoverable hint (not a generic error) when none is registered yet — registration itself is dashboard-only, deliberately not a tool. |
 | `waffle_create_payout` | `POST /v1/payouts` | no | Withdraws to the registered bank account. |
 | `waffle_healthz` | `GET /healthz` | yes | No auth. |
 

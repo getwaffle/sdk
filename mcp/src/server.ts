@@ -94,7 +94,7 @@ export function createServer(options: WaffleMcpServerOptions): McpServer {
     {
       title: "List supported banks",
       description:
-        "List every active bank Waffle supports for virtual-account charges and withdrawal bank accounts (code, display name, sort order). Bank codes are not fixed — call this before register_bank_account or before create_charge with channel \"virtual_account\" to get a valid bank code, rather than guessing or hardcoding one.",
+        "List every active bank Waffle supports for virtual-account charges (code, display name, sort order). Bank codes are not fixed — call this before create_charge with channel \"virtual_account\" to get a valid bank code, rather than guessing or hardcoding one.",
       outputSchema: z.object({
         banks: z.array(
           z.object({
@@ -198,35 +198,10 @@ export function createServer(options: WaffleMcpServerOptions): McpServer {
   );
 
   server.registerTool(
-    "waffle_register_bank_account",
-    {
-      title: "Register withdrawal bank account",
-      description:
-        "Register (or replace) the merchant's active withdrawal bank account for this API key's mode. Registering a new account disables any prior active one for that mode — only one active withdrawal destination per mode at a time — and a payout drawn against an account within 6 hours of it becoming active is held rather than dispatched, as a security measure against a hijacked key redirecting withdrawals. Call waffle_list_banks first for a valid bank code.",
-      inputSchema: z.object({
-        bankCode: z.string().min(1).describe('Bank code from waffle_list_banks, e.g. "BCA"'),
-        accountNumber: z.string().min(1),
-        accountHolderName: z.string().min(1),
-      }),
-      outputSchema: bankAccountOutputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-    },
-    async (params) => {
-      try {
-        const account = await client.registerBankAccount(params);
-        const text = `Registered ${account.bankCode} ${account.accountNumber} (${account.accountHolderName}) as id ${account.id}. Any prior active account for this mode is now disabled; a payout drawn against this one within 6h is held, not dispatched.`;
-        return { content: [{ type: "text", text }], structuredContent: account };
-      } catch (err) {
-        return errorResult(err);
-      }
-    },
-  );
-
-  server.registerTool(
     "waffle_get_bank_account",
     {
       title: "Get active withdrawal bank account",
-      description: "Get this API key's mode's current active withdrawal bank account, if one has ever been registered.",
+      description: "Get this API key's mode's current active withdrawal bank account, if one has ever been registered. Registration itself is dashboard-only, never through this server or any API key — a leaked key can never redirect where funds go.",
       outputSchema: bankAccountOutputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -238,7 +213,7 @@ export function createServer(options: WaffleMcpServerOptions): McpServer {
       } catch (err) {
         if (err instanceof WaffleError && err.status === 404) {
           return {
-            content: [{ type: "text", text: "No withdrawal bank account registered yet for this mode. Use waffle_register_bank_account first." }],
+            content: [{ type: "text", text: "No withdrawal bank account registered yet for this mode. Register one from the Waffle dashboard (Payouts \u2192 Bank accounts) — this is deliberately not something an API key or this tool can do." }],
             isError: true,
           };
         }
@@ -254,7 +229,7 @@ export function createServer(options: WaffleMcpServerOptions): McpServer {
       description:
         "Withdraw funds from the merchant's Waffle balance to their registered bank account. Moves real money on a live-mode key; a sandbox-mode key never can, regardless of these arguments. Mints its own Idempotency-Key per call, so calling this tool twice creates two separate payouts. Fails with a 422 \"insufficient available balance\" error if amount exceeds waffle_get_balance's withdrawable amount.",
       inputSchema: z.object({
-        bankAccountId: z.string().min(1).describe("id from waffle_register_bank_account or waffle_get_bank_account"),
+        bankAccountId: z.string().min(1).describe("id from waffle_get_bank_account"),
         amount: z.number().int().positive().describe("Amount in the currency's minor unit"),
         currency: z.string().min(1),
       }),

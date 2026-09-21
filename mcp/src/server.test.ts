@@ -48,7 +48,6 @@ describe("waffle MCP server", () => {
         "waffle_get_bank_account",
         "waffle_healthz",
         "waffle_list_banks",
-        "waffle_register_bank_account",
       ].sort(),
     );
   });
@@ -133,7 +132,7 @@ describe("waffle MCP server", () => {
 
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? "";
-    expect(text).toContain("waffle_register_bank_account");
+    expect(text).toContain("No withdrawal bank account registered");
   });
 
   it("maps listBanks results and omits a null logo_url", async () => {
