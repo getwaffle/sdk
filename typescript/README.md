@@ -25,10 +25,9 @@ import { WaffleClient, generateIdempotencyKey } from "@waffle/sdk";
 
 const client = new WaffleClient({
   apiKey: process.env.WAFFLE_API_KEY!,
-  // Defaults to http://localhost:8080 (the local docker-compose dev
-  // stack). No public production hostname is defined in the API
-  // contract yet — pass your deployment's URL once one exists.
-  baseUrl: "http://localhost:8080",
+  // Defaults to https://api.getwaffle.id (production). Pass
+  // "http://localhost:8080" for local dev against docker-compose.yml
+  // instead.
 });
 ```
 

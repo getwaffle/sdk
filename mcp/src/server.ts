@@ -12,7 +12,7 @@ import { formatMoney } from "./format.js";
 export interface WaffleMcpServerOptions {
   /** Merchant API key. Its mode (live vs sandbox) is fixed at issuance server-side — a sandbox key can never move live money no matter what a tool call asks for. */
   apiKey: string;
-  /** Merchant API base URL. Defaults to `WaffleClient`'s own default (`http://localhost:8080`). */
+  /** Merchant API base URL. Defaults to `WaffleClient`'s own default (`https://api.getwaffle.id`, production). */
   baseUrl?: string;
   /** Injectable `fetch`, forwarded to `WaffleClient` — used by tests. */
   fetch?: typeof fetch;

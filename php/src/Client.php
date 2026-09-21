@@ -32,11 +32,11 @@ use Waffle\Http\TransportResponse;
 final class Client
 {
     /**
-     * Default merchant API base URL, matching local dev via
-     * docker-compose.yml (see docs/api-contract.md). Override via the
-     * constructor's `$baseUrl` argument for staging/production.
+     * Default merchant API base URL — Waffle's production API. Pass
+     * 'http://localhost:8080' as the constructor's `$baseUrl` argument
+     * for local dev against docker-compose.yml instead.
      */
-    public const DEFAULT_BASE_URL = 'http://localhost:8080';
+    public const DEFAULT_BASE_URL = 'https://api.getwaffle.id';
 
     private readonly string $apiKey;
     private readonly string $baseUrl;

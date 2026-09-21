@@ -30,10 +30,7 @@ import (
 )
 
 func main() {
-	client := waffle.NewClient(
-		"sk_live_your_api_key",
-		waffle.WithBaseURL("https://api.example.com"), // default: http://localhost:8080
-	)
+	client := waffle.NewClient("sk_live_your_api_key") // default: https://api.getwaffle.id
 
 	ctx := context.Background()
 	if err := client.Healthz(ctx); err != nil {
@@ -46,9 +43,9 @@ func main() {
 ### Configuring the client
 
 ```go
-// Default base URL is http://localhost:8080, matching local dev via
-// docker-compose.yml. Override for staging/production:
-client := waffle.NewClient("sk_live_...", waffle.WithBaseURL("https://api.example.com"))
+// Default base URL is https://api.getwaffle.id (production). Point at
+// local dev against docker-compose.yml instead:
+client := waffle.NewClient("sk_live_...", waffle.WithBaseURL("http://localhost:8080"))
 
 // Override the underlying *http.Client (timeouts, transport, tracing, ...):
 client := waffle.NewClient("sk_live_...",

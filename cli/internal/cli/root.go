@@ -51,7 +51,7 @@ const (
 // newRootCmd wires the full command tree with the persistent flags:
 //
 //	--api-key   explicit API key, beating WAFFLE_API_KEY and config
-//	--base-url  merchant API base URL (default http://localhost:8080)
+//	--base-url  merchant API base URL (default https://api.getwaffle.id)
 //	--profile   named section of the config file
 //	--json      machine-readable output on every command
 func newRootCmd() *cobra.Command {

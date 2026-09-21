@@ -61,7 +61,8 @@ money-moving surface accepts. The CLI keeps them strictly separate:
 | Session token | stored by `login` | `whoami`, `keys` (`/v1/merchants/me/*` only) |
 
 Precedence for the base URL: `--base-url` flag > `WAFFLE_BASE_URL`
-env > stored profile value > `http://localhost:8080` (the SDK default).
+env > stored profile value > `https://api.getwaffle.id` (the SDK
+default, production — pass `http://localhost:8080` for local dev).
 
 ## Config file
 

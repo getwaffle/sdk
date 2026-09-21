@@ -458,6 +458,7 @@ func TestDefaultDashboardURLMatchesPortedBaseURL(t *testing.T) {
 		// the documented default — host WITH a port must still match
 		{"http://localhost:8080", "http://localhost:3001"},
 		{"http://127.0.0.1:8080", "http://localhost:3001"},
+		{"https://api.getwaffle.id", "https://getwaffle.id"},
 		{"https://api.example.com", ""},
 		{"", ""},
 		// no scheme -> no host -> unknown

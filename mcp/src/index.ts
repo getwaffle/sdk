@@ -14,4 +14,4 @@ if (!apiKey) {
 const baseUrl = process.env["WAFFLE_BASE_URL"];
 
 void serveStdio(() => createServer({ apiKey, ...(baseUrl !== undefined ? { baseUrl } : {}) }));
-console.error(`waffle MCP server running on stdio (base URL: ${baseUrl ?? "http://localhost:8080 (default)"})`);
+console.error(`waffle MCP server running on stdio (base URL: ${baseUrl ?? "https://api.getwaffle.id (default)"})`);

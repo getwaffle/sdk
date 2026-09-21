@@ -12,17 +12,18 @@ import type {
   RegisterBankAccountParams,
 } from "./types.js";
 
-/** Default merchant API base URL — matches the local `docker-compose.yml` dev stack. */
-export const DEFAULT_BASE_URL = "http://localhost:8080";
+/** Default merchant API base URL — Waffle's production API. Pass
+ * `baseUrl: "http://localhost:8080"` for local dev against
+ * `docker-compose.yml` instead. */
+export const DEFAULT_BASE_URL = "https://api.getwaffle.id";
 
 export interface WaffleClientOptions {
   /** Merchant API key, sent as `Authorization: Bearer <apiKey>`. */
   apiKey: string;
   /**
-   * Merchant API base URL. Defaults to `http://localhost:8080` (the local
-   * dev stack from `docker-compose.yml`). No public production hostname is
-   * defined in the API contract yet — pass your deployment's URL here
-   * once one exists.
+   * Merchant API base URL. Defaults to Waffle's production API
+   * (`https://api.getwaffle.id`). Pass `"http://localhost:8080"` for
+   * local dev against `docker-compose.yml` instead.
    */
   baseUrl?: string;
   /** Injectable `fetch` implementation; defaults to the global `fetch`. */

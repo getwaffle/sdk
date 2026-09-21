@@ -54,7 +54,7 @@ the `command`/`args`/`env` shape is otherwise identical.)
 | Env var | Required | Default | Notes |
 | --- | --- | --- | --- |
 | `WAFFLE_API_KEY` | yes | — | Sent as `Authorization: Bearer <key>` on every request. The key's mode (`live` vs `sandbox`) is fixed **server-side** at issuance — a sandbox key can never move real money no matter what a tool call asks for. Get one from the merchant dashboard's Integrations page, or `POST /v1/merchants/register` for a fresh sandbox key. |
-| `WAFFLE_BASE_URL` | no | `http://localhost:8080` | Point at a deployed merchant API once one exists. |
+| `WAFFLE_BASE_URL` | no | `https://api.getwaffle.id` | Set to `http://localhost:8080` for local dev against `docker-compose.yml`. |
 
 The process exits immediately with a one-line stderr message if
 `WAFFLE_API_KEY` is unset — a host sees a failed launch, not a hang.

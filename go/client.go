@@ -26,9 +26,10 @@ import (
 	"net/url"
 )
 
-// DefaultBaseURL is the default merchant API base URL, matching local dev
-// via docker-compose.yml (see docs/api-contract.md).
-const DefaultBaseURL = "http://localhost:8080"
+// DefaultBaseURL is the default merchant API base URL — Waffle's
+// production API. Point WithBaseURL at http://localhost:8080 for local
+// dev against docker-compose.yml instead.
+const DefaultBaseURL = "https://api.getwaffle.id"
 
 // Client is a Waffle merchant API client. Construct with NewClient.
 // A Client is safe for concurrent use by multiple goroutines (it holds no
@@ -44,9 +45,9 @@ type Client struct {
 type Option func(*Client)
 
 // WithBaseURL overrides the merchant API base URL. Default is
-// DefaultBaseURL ("http://localhost:8080"), suitable for local dev against
-// docker-compose.yml. Point this at your production/staging merchant API
-// host in other environments. The value must not have a trailing slash
+// DefaultBaseURL (Waffle's production API, "https://api.getwaffle.id").
+// Point this at http://localhost:8080 for local dev against
+// docker-compose.yml instead. The value must not have a trailing slash
 // requirement — trailing slashes are trimmed automatically.
 func WithBaseURL(u string) Option {
 	return func(c *Client) {
