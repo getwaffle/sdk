@@ -1,10 +1,10 @@
-module github.com/very-good-labs/waffle-cli
+module github.com/getwaffle/sdk/cli
 
 go 1.26.0
 
 require (
 	github.com/spf13/cobra v1.10.2
-	github.com/very-good-labs/waffle-go v0.0.0
+	github.com/getwaffle/sdk/go v0.0.0
 	golang.org/x/term v0.46.0
 )
 
@@ -14,4 +14,4 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-replace github.com/very-good-labs/waffle-go => ../go
+replace github.com/getwaffle/sdk/go => ../go

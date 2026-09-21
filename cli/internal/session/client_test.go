@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	waffle "github.com/very-good-labs/waffle-go"
+	waffle "github.com/getwaffle/sdk/go"
 )
 
 func TestLogin(t *testing.T) {

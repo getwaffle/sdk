@@ -1,5 +1,5 @@
 // Package cli implements the waffle developer CLI: cobra commands on
-// top of two clients — github.com/very-good-labs/waffle-go for every
+// top of two clients — github.com/getwaffle/sdk/go for every
 // API-key-authenticated money-moving call, and the private internal/
 // session package for the dashboard-authenticated /v1/merchants/me/*
 // surface. The two credentials are never interchangeable: a session
@@ -14,9 +14,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	waffle "github.com/very-good-labs/waffle-go"
+	waffle "github.com/getwaffle/sdk/go"
 
-	"github.com/very-good-labs/waffle-cli/internal/config"
+	"github.com/getwaffle/sdk/cli/internal/config"
 )
 
 // globals holds the persistent flags every command reads.

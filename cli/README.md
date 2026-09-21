@@ -2,7 +2,7 @@
 
 A developer CLI for the Waffle **merchant API** (the `:8080`
 listener; see `docs/api-contract.md` in the main repo for the frozen
-contract). Standalone Go module (`github.com/very-good-labs/waffle-cli`),
+contract). Standalone Go module (`github.com/getwaffle/sdk/cli`),
 sibling to `sdk/go`, `sdk/typescript`, `sdk/php`, and `sdk/mcp`. Every
 money-moving call goes through `waffle-go` — the CLI is a cobra
 front end over it plus a small private client for the dashboard-session
@@ -133,7 +133,7 @@ go build ./... && go vet ./... && go test ./...
 go build -o waffle-cli . && ./waffle-cli --help
 ```
 
-The `replace github.com/very-good-labs/waffle-go => ../go` directive
+The `replace github.com/getwaffle/sdk/go => ../go` directive
 in `go.mod` is for local development against the sibling SDK; a real
 release pins a version. Tests are `httptest`-backed — including the
 cross-contamination guard that a session token is never sent where an

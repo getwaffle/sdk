@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/very-good-labs/waffle-cli/internal/session"
+	"github.com/getwaffle/sdk/cli/internal/session"
 )
 
 func newKeysCmd() *cobra.Command {

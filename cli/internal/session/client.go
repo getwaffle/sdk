@@ -2,7 +2,7 @@
 // authenticated merchant-account surface: POST /v1/merchants/login and
 // the /v1/merchants/me/* routes. It is deliberately private to the CLI —
 // these are account-management calls, out of scope for the merchant
-// transactional SDK (github.com/very-good-labs/waffle-go), whose
+// transactional SDK (github.com/getwaffle/sdk/go), whose
 // API-key client the CLI reuses for every money-moving command.
 //
 // A session token must never reach a money-moving endpoint and an API
@@ -21,7 +21,7 @@ import (
 	"net/http"
 	"strings"
 
-	waffle "github.com/very-good-labs/waffle-go"
+	waffle "github.com/getwaffle/sdk/go"
 )
 
 // Client calls the /v1/merchants session surface with a dashboard

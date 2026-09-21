@@ -5,7 +5,7 @@
 // not a backend binary.
 package main
 
-import "github.com/very-good-labs/waffle-cli/internal/cli"
+import "github.com/getwaffle/sdk/cli/internal/cli"
 
 func main() {
 	cli.Execute()

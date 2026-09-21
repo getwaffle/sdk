@@ -3,7 +3,7 @@
 A Go client SDK for the Waffle **merchant API** (the `:8080` listener;
 see `docs/api-contract.md` in the main repo for the frozen contract this
 SDK implements). This is a standalone Go module — `go get
-github.com/very-good-labs/waffle-go` — with no dependency on the
+github.com/getwaffle/sdk/go` — with no dependency on the
 backend monorepo module.
 
 All money amounts are integers in the currency's minor unit (e.g. IDR
@@ -13,7 +13,7 @@ All money amounts are integers in the currency's minor unit (e.g. IDR
 ## Install
 
 ```sh
-go get github.com/very-good-labs/waffle-go
+go get github.com/getwaffle/sdk/go
 ```
 
 ## Quick start
@@ -26,7 +26,7 @@ import (
 	"fmt"
 	"log"
 
-	waffle "github.com/very-good-labs/waffle-go"
+	waffle "github.com/getwaffle/sdk/go"
 )
 
 func main() {

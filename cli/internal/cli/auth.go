@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/very-good-labs/waffle-cli/internal/config"
-	"github.com/very-good-labs/waffle-cli/internal/session"
+	"github.com/getwaffle/sdk/cli/internal/config"
+	"github.com/getwaffle/sdk/cli/internal/session"
 )
 
 // stdin/stderr indirection so tests can drive the prompts. stdinReader

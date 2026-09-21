@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	waffle "github.com/very-good-labs/waffle-go"
+	waffle "github.com/getwaffle/sdk/go"
 )
 
 // recorder captures the requests a CLI invocation makes, so tests can

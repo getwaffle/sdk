@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	waffle "github.com/very-good-labs/waffle-go"
+	waffle "github.com/getwaffle/sdk/go"
 )
 
 // moneyClient builds the waffle-go client for the resolved profile.
