@@ -1,4 +1,4 @@
-# paybridge CLI — E2E proof transcript
+# waffle CLI — E2E proof transcript
 
 Local stack: `make start` + `make seed` (api :8080, admin :8081, worker,
 mockgdc :8095, notifier, postgres). Binary: `go build ./sdk/cli` (actual
@@ -8,19 +8,19 @@ KYC -> admin review auto-connects PSPs).
 
 ## Login (email+password piped; TTY prompts are no-echo)
 
-    $ paybridge-cli login --email cli-e2e-1789647452@gmail.com
+    $ waffle login --email cli-e2e-1789647452@gmail.com
     Password:
-    Logged in. Session stored in .e2e-config/paybridge/config.json.
+    Logged in. Session stored in .e2e-config/waffle/config.json.
       Logged in:  cli-e2e-1789647452@gmail.com
       Profile:   default
       Session:   e2dba0b13627...
 
     No API key stored yet — money commands (balance, charges, payouts) need one.
-      paybridge keys create            mint + store a sandbox key right here
+      waffle keys create            mint + store a sandbox key right here
 
 ## whoami (session token -> /v1/merchants/me/profile)
 
-    $ paybridge-cli whoami
+    $ waffle whoami
       Merchant ID:  08114e2a-2d5e-4f0c-81b5-95692854d784
       Email:       cli-e2e-1789647452@gmail.com
       Status:      pending
@@ -31,15 +31,15 @@ KYC -> admin review auto-connects PSPs).
 
 ## keys create (session -> mint sandbox key -> auto-stored)
 
-    $ paybridge-cli keys create --name e2e-cli
+    $ waffle keys create --name e2e-cli
     Sandbox API key created.
       Key:  pb_sandbox_4f43baa5f65ff5de420578a253e1b1e38157202427e67057
       Mode:  sandbox
-    Stored in .e2e-config/paybridge/config.json — money commands are ready to use.
+    Stored in .e2e-config/waffle/config.json — money commands are ready to use.
 
 ## charges create --channel qris (API key -> POST /v1/charges)
 
-    $ paybridge-cli charges create --amount 50000 --channel qris --description "cli-e2e order 1"
+    $ waffle charges create --amount 50000 --channel qris --description "cli-e2e order 1"
     Charge created.
       Charge:  e310fce1-ed87-4731-85a0-4704a14ed05c
       Status:  pending
@@ -53,13 +53,13 @@ KYC -> admin review auto-connects PSPs).
 Settled on mockgdc (`POST /mock/simulate outcome=paid`, same signed push
 as demo-e2e.sh), then:
 
-    $ paybridge-cli balance
+    $ waffle balance
       Balance:  Rp49.360
       Currency:  IDR
 
 ## charges calculate-fee (channel/bank-narrowed quote)
 
-    $ paybridge-cli charges calculate-fee --amount 100000 --channel virtual_account --va-bank BCA
+    $ waffle charges calculate-fee --amount 100000 --channel virtual_account --va-bank BCA
     Fee quote (preview only).
       Gross:  Rp100.000
       Fee:   Rp4.500
@@ -67,12 +67,12 @@ as demo-e2e.sh), then:
 
 ## bank-accounts + payouts
 
-    $ paybridge-cli bank-accounts register --bank-code BCA --account-number 1234567890 --account-holder-name "E2E Owner"
+    $ waffle bank-accounts register --bank-code BCA --account-number 1234567890 --account-holder-name "E2E Owner"
     Bank account registered (now the active withdrawal destination).
       ID:      8e3ea2ab-8a05-45da-a30c-e68ba200a60b
       ...
 
-    $ paybridge-cli payouts create --bank-account-id 8e3ea2ab-... --amount 20000
+    $ waffle payouts create --bank-account-id 8e3ea2ab-... --amount 20000
     Payout created.
       Payout:       2dca44dd-1110-4a18-a097-2a467359e5e9
       Status:       held
@@ -83,23 +83,23 @@ as demo-e2e.sh), then:
 After the local 10s hold window (`PAYOUT_HOLD_WINDOW_SECONDS=10`), the
 worker auto-resumed the payout and the balance dropped accordingly:
 
-    $ paybridge-cli balance
+    $ waffle balance
       Balance:  Rp29.360      # 49.360 - 20.000
 
 ## JSON mode + logout + auth guard
 
-    $ paybridge-cli whoami --json
+    $ waffle whoami --json
     {
       "merchant_id": "08114e2a-...",
       "business_name": "CLI E2E Warung",
       ...
     }
 
-    $ paybridge-cli logout
+    $ waffle logout
     Profile "default": session and API key cleared.
 
-    $ paybridge-cli whoami
-    error: not logged in — run "paybridge login" first        (exit 1)
+    $ waffle whoami
+    error: not logged in — run "waffle login" first        (exit 1)
 
 ## Backend wiring fix found by this E2E
 
