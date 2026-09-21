@@ -32,6 +32,12 @@
     "payments"
   ],
   "license": "MIT",
+  "homepage": "https://getwaffle.id",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getwaffle/sdk.git",
+    "directory": "mcp"
+  },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
     "@waffle/sdk": "file:../typescript",

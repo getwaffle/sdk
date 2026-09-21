@@ -3,6 +3,11 @@
     "description": "PHP SDK for the Waffle merchant API (:8080)",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://getwaffle.id",
+    "support": {
+        "source": "https://github.com/getwaffle/sdk/tree/main/php",
+        "issues": "https://github.com/getwaffle/sdk/issues"
+    },
     "keywords": ["waffle", "payments", "sdk"],
     "require": {
         "php": ">=8.1",
