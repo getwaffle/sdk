@@ -15,10 +15,20 @@ always `int64`, never `float64`. Human output renders IDR as `Rp49.360`;
 
 ## Install
 
-From this repo (local dev):
+```sh
+curl -fsSL https://getwaffle.id/install.sh | sh
+```
+
+Downloads the latest release binary for your OS/arch (Linux/macOS;
+Windows: grab a `.zip` from [this repo's
+Releases](https://github.com/getwaffle/sdk/releases) instead) to
+`~/.local/bin/waffle`. Override the install directory with
+`WAFFLE_INSTALL_DIR=/somewhere/else`.
+
+From this repo (local dev, builds from source instead):
 
 ```sh
-go build -o waffle-cli ./sdk/cli   # the ../go replace directive applies
+go build -o waffle-cli ./cli   # the ../go replace directive applies
 ```
 
 ## Quick start
@@ -128,7 +138,7 @@ produce an actionable hint naming the exact command or env var to fix it.
 ## Development
 
 ```sh
-cd sdk/cli
+cd cli
 go build ./... && go vet ./... && go test ./...
 go build -o waffle-cli . && ./waffle-cli --help
 ```

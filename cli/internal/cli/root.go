@@ -29,6 +29,12 @@ type globals struct {
 
 var g globals
 
+// Version is set at build time via -ldflags
+// "-X github.com/getwaffle/sdk/cli/internal/cli.Version=v1.2.3" (see
+// .github/workflows/release-cli.yml). "dev" here means a local `go
+// build`/`go run` with no ldflags, i.e. not a tagged release.
+var Version = "dev"
+
 // resolved carries everything a command needs after flag/env/config
 // precedence is applied.
 type resolved struct {
@@ -63,6 +69,7 @@ Two credentials, never interchangeable:
 Credentials resolve in precedence order: --api-key flag >
 WAFFLE_API_KEY environment variable > the value stored by
 "waffle login"/"waffle configure" in the config file.`,
+		Version:           Version,
 		SilenceUsage:      true,
 		SilenceErrors:     true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },

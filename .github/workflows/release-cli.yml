@@ -1,0 +1,82 @@
+name: release-cli
+
+# Cross-compiles the waffle CLI for every OS/arch install.sh knows how
+# to fetch, and publishes them as a GitHub Release. Triggered by pushing
+# a tag matching cli/vX.Y.Z — the version embedded in the binary (see
+# internal/cli/root.go's Version var) comes straight from the tag, not a
+# separate version file, so there's exactly one place a release number
+# is decided.
+
+on:
+  push:
+    tags:
+      - "cli/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+      - name: Resolve version from tag
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#cli/}" >> "$GITHUB_OUTPUT"
+      - name: Build
+        working-directory: cli
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          ext=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+          go build -trimpath -ldflags "-s -w -X github.com/getwaffle/sdk/cli/internal/cli.Version=${{ steps.v.outputs.version }}" -o "waffle${ext}" .
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "waffle-cli_${{ matrix.goos }}_${{ matrix.goarch }}.zip" "waffle${ext}"
+          else
+            tar -czf "waffle-cli_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz" "waffle${ext}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: waffle-cli_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: |
+            cli/waffle-cli_*.tar.gz
+            cli/waffle-cli_*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "waffle-cli ${{ github.ref_name }}"
+          files: |
+            dist/waffle-cli_*.tar.gz
+            dist/waffle-cli_*.zip
+            dist/checksums.txt
+          generate_release_notes: true
