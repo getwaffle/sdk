@@ -2,7 +2,7 @@
 // (the ":8080" listener in the Waffle backend). It is deliberately its
 // own Go module (see go.mod: module github.com/very-good-labs/waffle-go)
 // rather than a subpackage of the backend monorepo module
-// (github.com/very-good-labs/paybridge), so that merchants can
+// (github.com/very-good-labs/waffle), so that merchants can
 // `go get github.com/very-good-labs/waffle-go` without pulling in the
 // entire backend (internal/httpapi, internal/domain, database drivers,
 // etc.) or being tied to the backend's release cadence. It has zero
