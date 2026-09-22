@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Waffle" width="72" height="72">
+</p>
+
 # Waffle SDKs
 
 Official client libraries for [Waffle](https://getwaffle.id), a payment
