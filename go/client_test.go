@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -45,13 +46,12 @@ func TestCreateCharge(t *testing.T) {
 			idempotencyKey: "idem-key-2",
 		},
 		{
-			name: "missing idempotency key",
+			name: "missing idempotency key is auto-generated, not an error",
 			params: CreateChargeParams{
 				Amount:   50000,
 				Currency: "IDR",
 			},
 			idempotencyKey: "",
-			wantErr:        true,
 		},
 	}
 
@@ -100,7 +100,11 @@ func TestCreateCharge(t *testing.T) {
 			if gotAuth != "Bearer sk_test_123" {
 				t.Errorf("Authorization = %q", gotAuth)
 			}
-			if gotIdemKey != tt.idempotencyKey {
+			if tt.idempotencyKey == "" {
+				if gotIdemKey == "" {
+					t.Error("expected an auto-generated Idempotency-Key, got none")
+				}
+			} else if gotIdemKey != tt.idempotencyKey {
 				t.Errorf("Idempotency-Key = %q, want %q", gotIdemKey, tt.idempotencyKey)
 			}
 			if _, ok := gotBody["provider"]; ok {
@@ -315,39 +319,50 @@ func TestListBanks(t *testing.T) {
 	}
 }
 
-func TestRegisterBankAccount(t *testing.T) {
-	var gotMethod, gotPath string
-	var gotBody map[string]any
+func TestGetBankAccount(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
 	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
-		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		gotAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(BankAccount{
 			ID:                "ba_1",
 			BankCode:          "BCA",
-			AccountNumber:     "1234567890",
+			AccountNumber:     "••••7890",
 			AccountHolderName: "Budi Santoso",
+			CreatedAt:         "2026-09-08T01:00:00Z",
 		})
 	})
 
-	acct, err := c.RegisterBankAccount(context.Background(), RegisterBankAccountParams{
-		BankCode:          "BCA",
-		AccountNumber:     "1234567890",
-		AccountHolderName: "Budi Santoso",
-	})
+	acct, err := c.GetBankAccount(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotMethod != http.MethodPost || gotPath != "/v1/bank-accounts" {
-		t.Errorf("got %s %s, want POST /v1/bank-accounts", gotMethod, gotPath)
+	if gotMethod != http.MethodGet || gotPath != "/v1/bank-accounts" {
+		t.Errorf("got %s %s, want GET /v1/bank-accounts", gotMethod, gotPath)
 	}
-	if gotBody["bank_code"] != "BCA" {
-		t.Errorf("body bank_code = %v", gotBody["bank_code"])
+	if gotAuth != "Bearer sk_test" {
+		t.Errorf("Authorization = %q", gotAuth)
 	}
 	if acct.ID != "ba_1" {
 		t.Errorf("ID = %q, want ba_1", acct.ID)
+	}
+	if acct.AccountNumber != "••••7890" {
+		t.Errorf("AccountNumber = %q, want masked", acct.AccountNumber)
+	}
+}
+
+func TestGetBankAccountNotFound(t *testing.T) {
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "bank account not found"})
+	})
+	_, err := c.GetBankAccount(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("want 404 APIError, got %v", err)
 	}
 }
 
@@ -392,12 +407,16 @@ func TestCreatePayout(t *testing.T) {
 		t.Errorf("Amount = %d, want 40000", payout.Amount)
 	}
 
-	// Idempotency key required.
+	// Empty idempotencyKey is auto-generated, not an error.
+	gotIdemKey = ""
 	_, err = c.CreatePayout(context.Background(), CreatePayoutParams{
 		BankAccountID: "ba_1", Amount: 1000, Currency: "IDR",
 	}, "")
-	if err == nil {
-		t.Fatalf("expected error when idempotencyKey is empty")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotIdemKey == "" {
+		t.Error("expected an auto-generated Idempotency-Key, got none")
 	}
 }
 
@@ -512,5 +531,297 @@ func TestGenerateIdempotencyKey(t *testing.T) {
 	}
 	if len(a) != 32 { // 16 random bytes hex-encoded
 		t.Errorf("len(key) = %d, want 32", len(a))
+	}
+}
+
+func TestPermissionErrorTranslation(t *testing.T) {
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "this API key lacks the charges:write permission"})
+	})
+
+	_, err := c.CreateCharge(context.Background(), CreateChargeParams{Amount: 1000, Currency: "IDR"}, "idem-1")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	var permErr *PermissionError
+	if !errors.As(err, &permErr) {
+		t.Fatalf("expected errors.As to find *PermissionError, got %v (%T)", err, err)
+	}
+	if permErr.Scope != "charges:write" {
+		t.Errorf("Scope = %q, want charges:write", permErr.Scope)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected errors.As to also find the underlying *APIError, got %v", err)
+	}
+}
+
+func TestForbiddenWithoutScopePatternIsPlainAPIError(t *testing.T) {
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden"})
+	})
+	_, err := c.CreateCharge(context.Background(), CreateChargeParams{Amount: 1000, Currency: "IDR"}, "idem-1")
+	var permErr *PermissionError
+	if errors.As(err, &permErr) {
+		t.Fatalf("did not expect a *PermissionError for a 403 without the scope pattern, got %+v", permErr)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("want plain 403 *APIError, got %v", err)
+	}
+}
+
+func TestGetCharge(t *testing.T) {
+	var gotMethod, gotPath string
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(Charge{
+			ID: "chg_1", Mode: "sandbox", Status: "paid",
+			GrossAmount: 100000, FeeAmount: 3000, NetAmount: 97000, Currency: "IDR",
+			CreatedAt: "2026-09-08T01:00:00Z", PaidAt: "2026-09-08T01:05:00Z",
+		})
+	})
+	charge, err := c.GetCharge(context.Background(), "chg_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/charges/chg_1" {
+		t.Errorf("got %s %s, want GET /v1/charges/chg_1", gotMethod, gotPath)
+	}
+	if charge.PaidAt != "2026-09-08T01:05:00Z" {
+		t.Errorf("PaidAt = %q", charge.PaidAt)
+	}
+}
+
+func TestGetChargeNotFound(t *testing.T) {
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "charge not found"})
+	})
+	_, err := c.GetCharge(context.Background(), "chg_missing")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound || apiErr.Message != "charge not found" {
+		t.Fatalf("want 404 'charge not found', got %v", err)
+	}
+}
+
+func TestListChargesQueryParams(t *testing.T) {
+	var gotQuery url.Values
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(ChargeList{Data: []Charge{{ID: "chg_1"}}, HasMore: false})
+	})
+	_, err := c.ListCharges(context.Background(), ChargeListParams{
+		Limit: 5, StartingAfter: "chg_0", Status: "paid",
+		CreatedGTE: "2026-01-01", CreatedLTE: "2026-12-31",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotQuery.Get("limit") != "5" || gotQuery.Get("starting_after") != "chg_0" ||
+		gotQuery.Get("status") != "paid" || gotQuery.Get("created[gte]") != "2026-01-01" ||
+		gotQuery.Get("created[lte]") != "2026-12-31" {
+		t.Errorf("query = %v", gotQuery)
+	}
+}
+
+func TestAllChargesAutoPaginates(t *testing.T) {
+	var gotStartingAfters []string
+	pages := [][]Charge{
+		{{ID: "chg_1"}, {ID: "chg_2"}},
+		{{ID: "chg_3"}},
+	}
+	call := 0
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		gotStartingAfters = append(gotStartingAfters, r.URL.Query().Get("starting_after"))
+		w.Header().Set("Content-Type", "application/json")
+		hasMore := call < len(pages)-1
+		_ = json.NewEncoder(w).Encode(ChargeList{Data: pages[call], HasMore: hasMore})
+		call++
+	})
+
+	var gotIDs []string
+	for charge, err := range c.AllCharges(context.Background(), ChargeListParams{Limit: 2}) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		gotIDs = append(gotIDs, charge.ID)
+	}
+	want := []string{"chg_1", "chg_2", "chg_3"}
+	if len(gotIDs) != len(want) {
+		t.Fatalf("got %v, want %v", gotIDs, want)
+	}
+	for i := range want {
+		if gotIDs[i] != want[i] {
+			t.Errorf("gotIDs[%d] = %q, want %q", i, gotIDs[i], want[i])
+		}
+	}
+	if gotStartingAfters[0] != "" || gotStartingAfters[1] != "chg_2" {
+		t.Errorf("gotStartingAfters = %v", gotStartingAfters)
+	}
+}
+
+func TestGetChargeReceipt(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write([]byte("%PDF-1.4 fake"))
+	})
+	b, err := c.GetChargeReceipt(context.Background(), "chg_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/charges/chg_1/receipt.pdf" {
+		t.Errorf("got %s %s", gotMethod, gotPath)
+	}
+	if gotAuth != "Bearer sk_test" {
+		t.Errorf("Authorization = %q", gotAuth)
+	}
+	if string(b) != "%PDF-1.4 fake" {
+		t.Errorf("body = %q", b)
+	}
+}
+
+func TestGetChargeReceiptConflict(t *testing.T) {
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "charge is not paid"})
+	})
+	_, err := c.GetChargeReceipt(context.Background(), "chg_1")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusConflict {
+		t.Fatalf("want 409 APIError, got %v", err)
+	}
+}
+
+func TestGetPayout(t *testing.T) {
+	var gotPath string
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(Payout{
+			ID: "po_1", BankAccountID: "ba_1", Mode: "sandbox", Status: "completed",
+			Amount: 40000, Currency: "IDR", BankCode: "BCA", AccountNumber: "1234567890",
+			AccountHolderName: "Budi", CreatedAt: "2026-09-08T01:00:00Z", CompletedAt: "2026-09-08T02:00:00Z",
+		})
+	})
+	p, err := c.GetPayout(context.Background(), "po_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/v1/payouts/po_1" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if p.AccountNumber != "1234567890" {
+		t.Errorf("AccountNumber = %q, want unmasked", p.AccountNumber)
+	}
+}
+
+func TestGetPayoutNotFound(t *testing.T) {
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "payout not found"})
+	})
+	_, err := c.GetPayout(context.Background(), "po_missing")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound || apiErr.Message != "payout not found" {
+		t.Fatalf("want 404 'payout not found', got %v", err)
+	}
+}
+
+func TestListPayoutsQueryParams(t *testing.T) {
+	var gotQuery url.Values
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(PayoutList{Data: []Payout{{ID: "po_1"}}, HasMore: false})
+	})
+	_, err := c.ListPayouts(context.Background(), PayoutListParams{Limit: 10, Status: "completed"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotQuery.Get("limit") != "10" || gotQuery.Get("status") != "completed" {
+		t.Errorf("query = %v", gotQuery)
+	}
+}
+
+func TestAllPayoutsAutoPaginates(t *testing.T) {
+	pages := [][]Payout{
+		{{ID: "po_1"}},
+		{{ID: "po_2"}},
+	}
+	call := 0
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		hasMore := call < len(pages)-1
+		_ = json.NewEncoder(w).Encode(PayoutList{Data: pages[call], HasMore: hasMore})
+		call++
+	})
+	var gotIDs []string
+	for p, err := range c.AllPayouts(context.Background(), PayoutListParams{}) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		gotIDs = append(gotIDs, p.ID)
+	}
+	if len(gotIDs) != 2 || gotIDs[0] != "po_1" || gotIDs[1] != "po_2" {
+		t.Errorf("gotIDs = %v", gotIDs)
+	}
+}
+
+func TestGetPayoutReceipt(t *testing.T) {
+	c, _ := newTestClient(t, "sk_test", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/payouts/po_1/receipt.pdf" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write([]byte("%PDF-payout"))
+	})
+	b, err := c.GetPayoutReceipt(context.Background(), "po_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(b) != "%PDF-payout" {
+		t.Errorf("body = %q", b)
+	}
+}
+
+func TestWhoAmI(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	c, _ := newTestClient(t, "sk_test_readonly", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(WhoAmIResult{
+			MerchantID: "m1", BusinessName: "Toko Budi", Mode: "sandbox",
+			Preset: "read_only", Scopes: []string{"charges:read", "payouts:read", "balance:read"},
+		})
+	})
+	who, err := c.WhoAmI(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/whoami" {
+		t.Errorf("got %s %s, want GET /v1/whoami", gotMethod, gotPath)
+	}
+	if gotAuth != "Bearer sk_test_readonly" {
+		t.Errorf("Authorization = %q", gotAuth)
+	}
+	if who.Preset != "read_only" || len(who.Scopes) != 3 {
+		t.Errorf("who = %+v", who)
 	}
 }

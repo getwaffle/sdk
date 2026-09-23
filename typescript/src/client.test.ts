@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { WaffleClient } from "./client.js";
-import { WaffleError } from "./errors.js";
+import { WaffleError, WafflePermissionError } from "./errors.js";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -217,34 +217,28 @@ describe("WaffleClient", () => {
     });
   });
 
-  it("sends a correctly shaped registerBankAccount request", async () => {
+  it("sends a correctly shaped getBankAccount request and maps masked fields", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(201, {
+      jsonResponse(200, {
         id: "bank-1",
         bank_code: "BCA",
-        account_number: "1234567890",
+        account_number: "******7890",
         account_holder_name: "Budi Santoso",
+        created_at: "2026-09-08T01:00:00Z",
       }),
     );
 
-    const account = await client.registerBankAccount({
-      bankCode: "BCA",
-      accountNumber: "1234567890",
-      accountHolderName: "Budi Santoso",
-    });
+    const account = await client.getBankAccount();
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://localhost:8080/v1/bank-accounts");
-    expect(JSON.parse(init.body as string)).toEqual({
-      bank_code: "BCA",
-      account_number: "1234567890",
-      account_holder_name: "Budi Santoso",
-    });
+    expect(init.method).toBe("GET");
     expect(account).toEqual({
       id: "bank-1",
       bankCode: "BCA",
-      accountNumber: "1234567890",
+      accountNumber: "******7890",
       accountHolderName: "Budi Santoso",
+      createdAt: "2026-09-08T01:00:00Z",
     });
   });
 
@@ -379,5 +373,437 @@ describe("WaffleClient", () => {
     expect(error).toBeInstanceOf(WaffleError);
     expect((error as WaffleError).status).toBe(429);
     expect((error as WaffleError).message).toBe("velocity limit exceeded");
+  });
+
+  it("throws a typed WafflePermissionError on 403 scope denial, parsing the scope", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(403, { error: "this API key lacks the payouts:write permission" }),
+    );
+
+    const error = await client
+      .createPayout(
+        { bankAccountId: "bank-1", amount: 1000, currency: "IDR" },
+        "idem-key-7",
+      )
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WaffleError);
+    expect(error).toBeInstanceOf(WafflePermissionError);
+    expect((error as WafflePermissionError).status).toBe(403);
+    expect((error as WafflePermissionError).scope).toBe("payouts:write");
+    expect((error as WafflePermissionError).message).toBe(
+      "this API key lacks the payouts:write permission",
+    );
+  });
+
+  it("throws a plain WaffleError (not WafflePermissionError) for a 403 that doesn't match the scope pattern", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(403, { error: "forbidden" }));
+
+    const error = await client.getBalance().catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WaffleError);
+    expect(error).not.toBeInstanceOf(WafflePermissionError);
+    expect((error as WaffleError).status).toBe(403);
+  });
+
+  it("auto-generates an Idempotency-Key for createCharge when omitted", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, {
+        id: "charge-auto",
+        mode: "sandbox",
+        status: "pending",
+        gross_amount: 1000,
+        fee_amount: 0,
+        net_amount: 1000,
+        currency: "IDR",
+        created_at: "2026-09-08T01:00:00Z",
+      }),
+    );
+
+    await client.createCharge({ amount: 1000, currency: "IDR" });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const key = (init.headers as Record<string, string>)["Idempotency-Key"];
+    expect(key).toBeTruthy();
+    expect(key).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("auto-generates an Idempotency-Key for createPayout when omitted", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, {
+        id: "payout-auto",
+        bank_account_id: "bank-1",
+        mode: "sandbox",
+        status: "pending",
+        amount: 1000,
+        currency: "IDR",
+      }),
+    );
+
+    await client.createPayout({ bankAccountId: "bank-1", amount: 1000, currency: "IDR" });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const key = (init.headers as Record<string, string>)["Idempotency-Key"];
+    expect(key).toBeTruthy();
+    expect(key).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("sends channel/vaBank in calculateFee and maps the quote", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        gross_amount: 75000,
+        fee_amount: 2000,
+        net_amount: 73000,
+        currency: "IDR",
+      }),
+    );
+
+    await client.calculateFee({
+      amount: 75000,
+      currency: "IDR",
+      channel: "virtual_account",
+      vaBank: "BCA",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      amount: 75000,
+      currency: "IDR",
+      channel: "virtual_account",
+      va_bank: "BCA",
+    });
+  });
+
+  it("sends a correctly shaped getCharge request and maps optional timestamps and breakdown", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        id: "charge-1",
+        mode: "sandbox",
+        status: "paid",
+        gross_amount: 100000,
+        fee_amount: 3000,
+        net_amount: 97000,
+        currency: "IDR",
+        created_at: "2026-09-08T01:00:00Z",
+        paid_at: "2026-09-08T01:05:00Z",
+        expires_at: "2026-09-08T02:00:00Z",
+        settled_at: "2026-09-09T00:00:00Z",
+        checkout_channel_selection: "merchant",
+        breakdown: {
+          base_amount: 100000,
+          fee_amount: 3000,
+          fee_bearer: "merchant",
+          fee_rule: { type: "percentage", percent_bps: 300, flat_amount: 0 },
+          payer_paid: 100000,
+          merchant_receives: 97000,
+          channel: "qris",
+        },
+      }),
+    );
+
+    const charge = await client.getCharge("charge-1");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://localhost:8080/v1/charges/charge-1");
+    expect(init.method).toBe("GET");
+    expect(charge.paidAt).toBe("2026-09-08T01:05:00Z");
+    expect(charge.expiresAt).toBe("2026-09-08T02:00:00Z");
+    expect(charge.settledAt).toBe("2026-09-09T00:00:00Z");
+    expect(charge.checkoutChannelSelection).toBe("merchant");
+    expect(charge.breakdown).toEqual({
+      baseAmount: 100000,
+      feeAmount: 3000,
+      feeBearer: "merchant",
+      feeRule: { type: "percentage", percentBps: 300, flatAmount: 0 },
+      payerPaid: 100000,
+      merchantReceives: 97000,
+      channel: "qris",
+    });
+  });
+
+  it("maps a null breakdown for an unpriced payer-selection charge", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, {
+        id: "charge-payer-1",
+        mode: "sandbox",
+        status: "pending",
+        gross_amount: 0,
+        fee_amount: 0,
+        net_amount: 0,
+        currency: "IDR",
+        created_at: "2026-09-08T01:00:00Z",
+        checkout_channel_selection: "payer",
+        breakdown: null,
+      }),
+    );
+
+    const charge = await client.createCharge({
+      amount: 100000,
+      currency: "IDR",
+      checkoutChannelSelection: "payer",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      checkout_channel_selection: "payer",
+    });
+    expect(charge.breakdown).toBeNull();
+  });
+
+  it("sends listCharges query params and maps hasMore", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: [
+          {
+            id: "charge-1",
+            mode: "sandbox",
+            status: "paid",
+            gross_amount: 1000,
+            fee_amount: 0,
+            net_amount: 1000,
+            currency: "IDR",
+            created_at: "2026-09-08T01:00:00Z",
+          },
+        ],
+        has_more: true,
+      }),
+    );
+
+    const page = await client.listCharges({
+      limit: 10,
+      startingAfter: "charge-0",
+      status: "paid",
+      createdGte: "2026-09-01",
+      createdLte: "2026-09-30",
+    });
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const parsed = new URL(url);
+    expect(parsed.pathname).toBe("/v1/charges");
+    expect(parsed.searchParams.get("limit")).toBe("10");
+    expect(parsed.searchParams.get("starting_after")).toBe("charge-0");
+    expect(parsed.searchParams.get("status")).toBe("paid");
+    expect(parsed.searchParams.get("created[gte]")).toBe("2026-09-01");
+    expect(parsed.searchParams.get("created[lte]")).toBe("2026-09-30");
+    expect(page.hasMore).toBe(true);
+    expect(page.data).toHaveLength(1);
+    expect(page.data[0]!.id).toBe("charge-1");
+  });
+
+  it("listChargesAutoPaging pages through starting_after until has_more is false", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: [
+            {
+              id: "charge-1",
+              mode: "sandbox",
+              status: "paid",
+              gross_amount: 1000,
+              fee_amount: 0,
+              net_amount: 1000,
+              currency: "IDR",
+              created_at: "2026-09-08T01:00:00Z",
+            },
+          ],
+          has_more: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: [
+            {
+              id: "charge-2",
+              mode: "sandbox",
+              status: "paid",
+              gross_amount: 2000,
+              fee_amount: 0,
+              net_amount: 2000,
+              currency: "IDR",
+              created_at: "2026-09-08T02:00:00Z",
+            },
+          ],
+          has_more: false,
+        }),
+      );
+
+    const ids: string[] = [];
+    for await (const charge of client.listChargesAutoPaging()) {
+      ids.push(charge.id);
+    }
+
+    expect(ids).toEqual(["charge-1", "charge-2"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [secondUrl] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(new URL(secondUrl).searchParams.get("starting_after")).toBe("charge-1");
+  });
+
+  it("fetches the charge receipt PDF as bytes", async () => {
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+    fetchMock.mockResolvedValueOnce(
+      new Response(pdfBytes, {
+        status: 200,
+        headers: { "Content-Type": "application/pdf" },
+      }),
+    );
+
+    const bytes = await client.getChargeReceipt("charge-1");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://localhost:8080/v1/charges/charge-1/receipt.pdf");
+    expect(init.method).toBe("GET");
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(Array.from(bytes)).toEqual([0x25, 0x50, 0x44, 0x46]);
+  });
+
+  it("throws a WaffleError with status 409 when the charge receipt isn't ready", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(409, { error: "charge not paid" }));
+
+    const error = await client.getChargeReceipt("charge-1").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WaffleError);
+    expect((error as WaffleError).status).toBe(409);
+    expect((error as WaffleError).message).toBe("charge not paid");
+  });
+
+  it("sends a correctly shaped getPayout request and maps GET-only fields", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        id: "payout-1",
+        bank_account_id: "bank-1",
+        mode: "sandbox",
+        status: "completed",
+        amount: 40000,
+        currency: "IDR",
+        bank_code: "BCA",
+        account_number: "******7890",
+        account_holder_name: "Budi Santoso",
+        created_at: "2026-09-08T01:00:00Z",
+        completed_at: "2026-09-08T01:10:00Z",
+      }),
+    );
+
+    const payout = await client.getPayout("payout-1");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://localhost:8080/v1/payouts/payout-1");
+    expect(init.method).toBe("GET");
+    expect(payout).toEqual({
+      id: "payout-1",
+      bankAccountId: "bank-1",
+      mode: "sandbox",
+      status: "completed",
+      amount: 40000,
+      currency: "IDR",
+      bankCode: "BCA",
+      accountNumber: "******7890",
+      accountHolderName: "Budi Santoso",
+      createdAt: "2026-09-08T01:00:00Z",
+      completedAt: "2026-09-08T01:10:00Z",
+    });
+  });
+
+  it("sends listPayouts query params and maps hasMore", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: [
+          {
+            id: "payout-1",
+            bank_account_id: "bank-1",
+            mode: "sandbox",
+            status: "completed",
+            amount: 1000,
+            currency: "IDR",
+          },
+        ],
+        has_more: false,
+      }),
+    );
+
+    const page = await client.listPayouts({ status: "completed" });
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get("status")).toBe("completed");
+    expect(page.hasMore).toBe(false);
+    expect(page.data[0]!.id).toBe("payout-1");
+  });
+
+  it("listPayoutsAutoPaging pages through starting_after until has_more is false", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: [
+            {
+              id: "payout-1",
+              bank_account_id: "bank-1",
+              mode: "sandbox",
+              status: "completed",
+              amount: 1000,
+              currency: "IDR",
+            },
+          ],
+          has_more: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: [
+            {
+              id: "payout-2",
+              bank_account_id: "bank-1",
+              mode: "sandbox",
+              status: "completed",
+              amount: 2000,
+              currency: "IDR",
+            },
+          ],
+          has_more: false,
+        }),
+      );
+
+    const ids: string[] = [];
+    for await (const payout of client.listPayoutsAutoPaging()) {
+      ids.push(payout.id);
+    }
+
+    expect(ids).toEqual(["payout-1", "payout-2"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fetches the payout receipt PDF as bytes", async () => {
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+    fetchMock.mockResolvedValueOnce(new Response(pdfBytes, { status: 200 }));
+
+    const bytes = await client.getPayoutReceipt("payout-1");
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://localhost:8080/v1/payouts/payout-1/receipt.pdf");
+    expect(Array.from(bytes)).toEqual([0x25, 0x50, 0x44, 0x46]);
+  });
+
+  it("sends a correctly shaped whoami request with no scope required", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        merchant_id: "merchant-1",
+        business_name: "Toko Budi",
+        mode: "sandbox",
+        preset: "read_only",
+        scopes: ["charges:read", "payouts:read", "balance:read"],
+      }),
+    );
+
+    const who = await client.whoami();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://localhost:8080/v1/whoami");
+    expect(init.method).toBe("GET");
+    expect(who).toEqual({
+      merchantId: "merchant-1",
+      businessName: "Toko Budi",
+      mode: "sandbox",
+      preset: "read_only",
+      scopes: ["charges:read", "payouts:read", "balance:read"],
+    });
   });
 });

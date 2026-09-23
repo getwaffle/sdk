@@ -21,6 +21,48 @@ export type PayoutStatus =
 export type Mode = "live" | "sandbox";
 
 /**
+ * Which side of a charge's checkout gets to pick the payment channel.
+ * `"merchant"` (the default when omitted) means the merchant picks
+ * `channel`/`vaBank` up front, same as before this field existed.
+ * `"payer"` defers the choice to whoever opens `checkoutUrl` — such a
+ * charge has no `channel` until the payer picks one, and its `breakdown`
+ * is `null` until then since the fee depends on the chosen channel.
+ */
+export type CheckoutChannelSelection = "merchant" | "payer";
+
+/** Who absorbs a charge's fee. */
+export type FeeBearer = "merchant" | "customer";
+
+export type FeeRuleType = "percentage" | "flat";
+
+/** The fee rule applied to a charge, as returned in `Charge.breakdown`. */
+export interface FeeRule {
+  type: FeeRuleType;
+  /** Percentage fee in basis points (1/100 of a percent). */
+  percentBps: number;
+  /** Flat fee component, in the charge's minor currency unit. */
+  flatAmount: number;
+}
+
+/**
+ * Itemized fee breakdown for a charge. `null` on the `Charge` itself for
+ * an unpriced `checkoutChannelSelection: "payer"` charge — there's no fee
+ * to break down until the payer picks a channel.
+ */
+export interface ChargeBreakdown {
+  /** `null` when the charge has no base amount to attribute yet (see above). */
+  baseAmount: number | null;
+  feeAmount: number;
+  /** `null` alongside `baseAmount` for the same reason. */
+  feeBearer: FeeBearer | null;
+  feeRule: FeeRule;
+  payerPaid: number;
+  merchantReceives: number;
+  channel?: Channel;
+  vaBank?: string;
+}
+
+/**
  * Request body for `POST /v1/charges`. There is no `provider` field —
  * the server always auto-routes to the merchant's highest-priority
  * connected PSP; which PSPs are connected is an admin-only decision the
@@ -42,10 +84,12 @@ export interface CreateChargeParams {
   /** Bank code (e.g. `"BCA"`, `"MANDIRI"`); required only when `channel` is `"virtual_account"`. */
   vaBank?: string;
   expiresInMinutes?: number;
+  /** See {@link CheckoutChannelSelection}. Defaults server-side to `"merchant"`. */
+  checkoutChannelSelection?: CheckoutChannelSelection;
   metadata?: Record<string, string>;
 }
 
-/** Response body for `POST /v1/charges` (`201`). No `provider` field. */
+/** Response body for `POST /v1/charges` (`201`) and `GET /v1/charges/{id}` (`200`). No `provider` field. */
 export interface Charge {
   id: string;
   mode: Mode;
@@ -67,6 +111,35 @@ export interface Charge {
   createdAt: string;
   /** Omitted by the server when empty. */
   metadata?: Record<string, string>;
+  /** Itemized fee breakdown. `null`/omitted for an unpriced `"payer"`-selection charge until the payer picks a channel. */
+  breakdown?: ChargeBreakdown | null;
+  /** Echoes the request's `checkoutChannelSelection`. */
+  checkoutChannelSelection?: CheckoutChannelSelection;
+  /** Present only from `getCharge`/`listCharges`, once the charge has been paid. */
+  paidAt?: string;
+  /** Present only from `getCharge`/`listCharges`, when the charge has an expiry. */
+  expiresAt?: string;
+  /** Present only from `getCharge`/`listCharges`, once the charge has settled. */
+  settledAt?: string;
+}
+
+/** Query params for `GET /v1/charges`. */
+export interface ListChargesParams {
+  /** Default 20, max 100. */
+  limit?: number;
+  /** Cursor: the `id` of the last charge from a previous page. */
+  startingAfter?: string;
+  status?: ChargeStatus;
+  /** RFC3339 or `YYYY-MM-DD`. */
+  createdGte?: string;
+  /** RFC3339 or `YYYY-MM-DD`. */
+  createdLte?: string;
+}
+
+/** Response body for `GET /v1/charges` (`200`). */
+export interface ListChargesResponse {
+  data: Charge[];
+  hasMore: boolean;
 }
 
 /**
@@ -78,6 +151,9 @@ export interface Charge {
 export interface CalculateFeeParams {
   amount: number;
   currency: Currency;
+  channel?: Channel;
+  /** Bank code; only meaningful alongside `channel: "virtual_account"`. */
+  vaBank?: string;
 }
 
 /** Response body for `POST /v1/fees/calculate` (`200`). No `provider` field. */
@@ -88,33 +164,26 @@ export interface FeeQuote {
   currency: Currency;
 }
 
-/** Request body for `POST /v1/bank-accounts`. All fields required. */
-export interface RegisterBankAccountParams {
-  bankCode: string;
-  accountNumber: string;
-  accountHolderName: string;
-}
-
-/** Response body for `POST /v1/bank-accounts` (`201`) and `GET /v1/bank-accounts` (`200`). */
+/**
+ * Response body for `GET /v1/bank-accounts` (`200`) — the caller's
+ * currently registered withdrawal destination for their mode.
+ * `accountNumber` comes back masked; bank-account registration is
+ * dashboard-only and has no SDK method (see `docs/api-contract.md` —
+ * `POST /v1/bank-accounts` no longer exists).
+ */
 export interface BankAccount {
   id: string;
   bankCode: string;
+  /** Masked by the server, e.g. `"******7890"`. */
   accountNumber: string;
   accountHolderName: string;
-  /**
-   * When this became the active withdrawal account for the caller's
-   * mode. Present from `getActiveBankAccount`; a payout drawn against
-   * an account within 6 hours of this timestamp is held rather than
-   * dispatched — see {@link PayoutStatus}.
-   */
   createdAt?: string;
 }
 
 /**
  * Request body for `POST /v1/payouts`. No `provider` field — like
  * `POST /v1/charges`, this auto-routes to the merchant's
- * highest-priority connected PSP (payouts used to require naming one
- * explicitly; that asymmetry with charges is gone).
+ * highest-priority connected PSP.
  */
 export interface CreatePayoutParams {
   bankAccountId: string;
@@ -123,14 +192,13 @@ export interface CreatePayoutParams {
 }
 
 /**
- * Response body for `POST /v1/payouts` (`201`). No `provider` field —
- * which PSP handled the payout is never surfaced to the merchant.
- * `status: "held"` means the payout was claimed (debited) but drawn
- * against a bank account registered within the last 6 hours — a
- * security hold on withdrawal-account changes (see
- * {@link BankAccount.createdAt}) — so it is deliberately not yet
- * dispatched to a PSP; the server resumes it automatically once the
- * account has aged past the window, no caller action needed.
+ * Response body for `POST /v1/payouts` (`201`) and `GET /v1/payouts/{id}`
+ * (`200`). No `provider` field — which PSP handled the payout is never
+ * surfaced to the merchant. `status: "held"` means the payout was claimed
+ * (debited) but drawn against a recently-registered bank account — a
+ * security hold on withdrawal-account changes — so it is deliberately not
+ * yet dispatched to a PSP; the server resumes it automatically once the
+ * hold clears, no caller action needed.
  */
 export interface Payout {
   id: string;
@@ -139,8 +207,37 @@ export interface Payout {
   status: PayoutStatus;
   amount: number;
   currency: Currency;
+  /** Present only from `getPayout`/`listPayouts`. */
+  bankCode?: string;
+  /** Present only from `getPayout`/`listPayouts`. */
+  accountNumber?: string;
+  /** Present only from `getPayout`/`listPayouts`. */
+  accountHolderName?: string;
+  /** Present only from `getPayout`/`listPayouts`. */
+  createdAt?: string;
+  /** Present only from `getPayout`/`listPayouts`, once completed. */
+  completedAt?: string;
   /** Omitted by the server when empty. */
   failureReason?: string;
+}
+
+/** Query params for `GET /v1/payouts`. */
+export interface ListPayoutsParams {
+  /** Default 20, max 100. */
+  limit?: number;
+  /** Cursor: the `id` of the last payout from a previous page. */
+  startingAfter?: string;
+  status?: PayoutStatus;
+  /** RFC3339 or `YYYY-MM-DD`. */
+  createdGte?: string;
+  /** RFC3339 or `YYYY-MM-DD`. */
+  createdLte?: string;
+}
+
+/** Response body for `GET /v1/payouts` (`200`). */
+export interface ListPayoutsResponse {
+  data: Payout[];
+  hasMore: boolean;
 }
 
 /** Response body for `GET /v1/balance` (`200`). Withdrawable balance only. */
@@ -162,4 +259,35 @@ export interface Bank {
   /** Omitted when the bank has no logo asset on file. */
   logoUrl?: string;
   sortOrder: number;
+}
+
+/** An API key scope. A `*:write` scope does not imply the matching `*:read`. */
+export type Scope =
+  | "charges:read"
+  | "charges:write"
+  | "payouts:read"
+  | "payouts:write"
+  | "balance:read";
+
+/**
+ * A named bundle of scopes an API key was issued with. `"read_only"` is
+ * `charges:read` + `payouts:read` + `balance:read`; `"accept_payments"` is
+ * `charges:read` + `charges:write` + `balance:read`; `"full"` is all five
+ * scopes; `"custom"` is any other combination.
+ */
+export type Preset = "read_only" | "accept_payments" | "full" | "custom";
+
+/**
+ * Response body for `GET /v1/whoami` (`200`). No scope required — safe to
+ * call with any valid key. Callers (e.g. an MCP server built on this SDK)
+ * should call this once at startup and use `scopes` to decide which
+ * operations to expose, rather than hardcoding assumptions about a key's
+ * permissions.
+ */
+export interface WhoAmI {
+  merchantId: string;
+  businessName: string;
+  mode: Mode;
+  preset: Preset;
+  scopes: Scope[];
 }

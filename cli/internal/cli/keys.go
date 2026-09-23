@@ -19,10 +19,58 @@ func newKeysCmd() *cobra.Command {
 List/create/revoke use the dashboard session from "waffle login".
 Self-service minting is sandbox-only by design (live keys are
 admin-issued after review). "keys create" stores the fresh key in the
-config file automatically so money commands work immediately.`,
+config file automatically so money commands work immediately.
+
+"keys whoami" is different from the rest of this group: it uses the
+configured API key itself (not the dashboard session) to ask the
+server what that key can do.`,
 	}
-	cmd.AddCommand(newKeysListCmd(), newKeysCreateCmd(), newKeysRevokeCmd())
+	cmd.AddCommand(newKeysListCmd(), newKeysCreateCmd(), newKeysRevokeCmd(), newKeysWhoamiCmd())
 	return cmd
+}
+
+// newKeysWhoamiCmd surfaces GET /v1/whoami (waffle-go's WhoAmI): the
+// identity and scopes of the API key actually configured for money
+// commands. This is deliberately a different command from top-level
+// "waffle whoami" (GET /v1/merchants/me/profile via the dashboard
+// session) — the two use different credentials and answer different
+// questions: "who is this merchant account" (session) vs. "what can
+// this API key do" (API key). No scope is required to call it.
+func newKeysWhoamiCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "whoami",
+		Short: "Show the configured API key's mode, preset, and scopes (GET /v1/whoami)",
+		Long: `Show the identity and permissions of the currently configured API
+key: merchant, mode (sandbox/live), scope preset (read_only |
+accept_payments | full | custom), and the resolved scope list. No
+scope is required to call this — any valid key can. Useful to check
+what a key can do before calling a scoped money command.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r, err := g.load()
+			if err != nil {
+				return err
+			}
+			c, err := r.moneyClient()
+			if err != nil {
+				return err
+			}
+			who, err := c.WhoAmI(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if g.jsonOut {
+				return emitJSON(os.Stdout, who)
+			}
+			printKV(os.Stdout, "", []kv{
+				row("Merchant ID", who.MerchantID),
+				row("Business", who.BusinessName),
+				row("Mode", who.Mode),
+				row("Preset", who.Preset),
+				row("Scopes", strings.Join(who.Scopes, ", ")),
+			})
+			return nil
+		},
+	}
 }
 
 func newKeysListCmd() *cobra.Command {

@@ -67,9 +67,9 @@ func newBanksCmd() *cobra.Command {
 		Use:   "banks",
 		Short: "List the active bank directory",
 		Long: `List waffle's active bank directory (GET /v1/banks): the banks
-usable for virtual accounts and, for payouts, the bank_code values
-accepted by "waffle bank-accounts register". Unauthenticated on the
-server; ordered by sort_order.`,
+usable for virtual accounts and for withdrawal accounts (registered via
+the dashboard, never via API key). Unauthenticated on the server;
+ordered by sort_order.`,
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
@@ -106,9 +106,15 @@ server; ordered by sort_order.`,
 func newChargesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "charges",
-		Short: "Create charges and preview fees",
+		Short: "Create, inspect, and list charges; preview fees",
 	}
-	cmd.AddCommand(newChargesCreateCmd(), newChargesCalculateFeeCmd())
+	cmd.AddCommand(
+		newChargesCreateCmd(),
+		newChargesCalculateFeeCmd(),
+		newChargesGetCmd(),
+		newChargesListCmd(),
+		newChargesReceiptCmd(),
+	)
 	return cmd
 }
 
@@ -130,16 +136,17 @@ func parseMetadata(pairs []string) (map[string]string, error) {
 
 func newChargesCreateCmd() *cobra.Command {
 	var (
-		amount     int64
-		currency   string
-		desc       string
-		channel    string
-		vaBank     string
-		customer   string
-		returnURL  string
-		expiresMin int
-		metadata   []string
-		idemKey    string
+		amount            int64
+		currency          string
+		desc              string
+		channel           string
+		vaBank            string
+		checkoutSelection string
+		customer          string
+		returnURL         string
+		expiresMin        int
+		metadata          []string
+		idemKey           string
 	)
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -173,6 +180,11 @@ or one is generated for this invocation.`,
 			if channel == "virtual_account" && vaBank == "" {
 				return fmt.Errorf("--va-bank is required with --channel virtual_account")
 			}
+			switch checkoutSelection {
+			case "", "merchant", "payer":
+			default:
+				return fmt.Errorf("invalid --checkout-channel-selection %q: must be merchant or payer", checkoutSelection)
+			}
 			meta, err := parseMetadata(metadata)
 			if err != nil {
 				return err
@@ -189,15 +201,16 @@ or one is generated for this invocation.`,
 				idemKey = waffle.GenerateIdempotencyKey()
 			}
 			charge, err := c.CreateCharge(cmd.Context(), waffle.CreateChargeParams{
-				Amount:           amount,
-				Currency:         currency,
-				Description:      desc,
-				CustomerRef:      customer,
-				ReturnURL:        returnURL,
-				Channel:          channel,
-				VABank:           vaBank,
-				ExpiresInMinutes: expiresMin,
-				Metadata:         meta,
+				Amount:                   amount,
+				Currency:                 currency,
+				Description:              desc,
+				CustomerRef:              customer,
+				ReturnURL:                returnURL,
+				Channel:                  channel,
+				VABank:                   vaBank,
+				ExpiresInMinutes:         expiresMin,
+				CheckoutChannelSelection: checkoutSelection,
+				Metadata:                 meta,
 			}, idemKey)
 			if err != nil {
 				return err
@@ -230,6 +243,7 @@ or one is generated for this invocation.`,
 	cmd.Flags().StringVar(&desc, "description", "", "human-readable description")
 	cmd.Flags().StringVar(&channel, "channel", "", "qris | virtual_account (empty = hosted checkout)")
 	cmd.Flags().StringVar(&vaBank, "va-bank", "", "bank code for virtual_account (see waffle banks list)")
+	cmd.Flags().StringVar(&checkoutSelection, "checkout-channel-selection", "", "merchant | payer (empty = merchant, the default)")
 	cmd.Flags().StringVar(&customer, "customer-ref", "", "your customer reference")
 	cmd.Flags().StringVar(&returnURL, "return-url", "", "URL the payer returns to after checkout")
 	cmd.Flags().IntVar(&expiresMin, "expires-in-minutes", 0, "charge expiry in minutes")
@@ -296,34 +310,36 @@ provider a real charge would use, so the quote matches the bill.`,
 	return cmd
 }
 
-func newBankAccountsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "bank-accounts",
-		Short: "Register and inspect your withdrawal bank account",
+func chargeRows(charge *waffle.Charge) []kv {
+	rows := []kv{
+		row("Charge", charge.ID),
+		row("Status", charge.Status),
+		row("Amount", money(charge.GrossAmount, charge.Currency)),
+		row("Fee", money(charge.FeeAmount, charge.Currency)),
+		row("Net", money(charge.NetAmount, charge.Currency)),
+		row("Created", charge.CreatedAt),
+		row("Paid", charge.PaidAt),
+		row("Expires", charge.ExpiresAt),
+		row("Settled", charge.SettledAt),
 	}
-	cmd.AddCommand(newBankAccountsRegisterCmd(), newBankAccountsGetCmd())
-	return cmd
+	switch {
+	case charge.QRString != "":
+		rows = append(rows, row("QR", charge.QRString))
+	case charge.VANumber != "":
+		rows = append(rows, row("VA bank", charge.VABank), row("VA number", charge.VANumber))
+	case charge.CheckoutURL != "":
+		rows = append(rows, row("Checkout", charge.CheckoutURL))
+	}
+	return rows
 }
 
-func newBankAccountsRegisterCmd() *cobra.Command {
-	var (
-		bankCode string
-		acctNo   string
-		holder   string
-	)
-	cmd := &cobra.Command{
-		Use:   "register",
-		Short: "Register the active withdrawal account",
-		Long: `Register a withdrawal destination (POST /v1/bank-accounts).
-Registering a new account disables the previous active one — only one
-active withdrawal destination per mode at a time. A payout drawn
-against a freshly-registered account is held (not dispatched) for a
-security window, then resumed automatically.`,
-		Example: `  waffle bank-accounts register --bank-code BCA --account-number 1234567890 --account-holder-name "Budi Santoso"`,
+func newChargesGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "get <charge-id>",
+		Short:   "Show one charge (GET /v1/charges/{id})",
+		Args:    cobra.ExactArgs(1),
+		Example: `  waffle charges get chg_abc123`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if bankCode == "" || acctNo == "" || holder == "" {
-				return fmt.Errorf("--bank-code, --account-number and --account-holder-name are all required")
-			}
 			r, err := g.load()
 			if err != nil {
 				return err
@@ -332,36 +348,164 @@ security window, then resumed automatically.`,
 			if err != nil {
 				return err
 			}
-			acct, err := c.RegisterBankAccount(cmd.Context(), waffle.RegisterBankAccountParams{
-				BankCode:          bankCode,
-				AccountNumber:     acctNo,
-				AccountHolderName: holder,
-			})
+			charge, err := c.GetCharge(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			if g.jsonOut {
-				return emitJSON(os.Stdout, acct)
+				return emitJSON(os.Stdout, charge)
 			}
-			printKV(os.Stdout, "Bank account registered (now the active withdrawal destination).", []kv{
-				row("ID", acct.ID),
-				row("Bank", acct.BankCode),
-				row("Account", acct.AccountNumber),
-				row("Holder", acct.AccountHolderName),
-			})
+			printKV(os.Stdout, "", chargeRows(charge))
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&bankCode, "bank-code", "", "bank code from waffle banks list (required)")
-	cmd.Flags().StringVar(&acctNo, "account-number", "", "bank account number (required)")
-	cmd.Flags().StringVar(&holder, "account-holder-name", "", "account holder name (required)")
+}
+
+func newChargesListCmd() *cobra.Command {
+	var (
+		limit         int
+		startingAfter string
+		status        string
+		createdGTE    string
+		createdLTE    string
+		all           bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List charges (GET /v1/charges)",
+		Long: `List charges with cursor pagination. Pass --all to auto-paginate
+through every matching charge instead of printing one page.`,
+		Example: `  waffle charges list --status paid --limit 10
+  waffle charges list --all --status paid
+  waffle charges list --created-gte 2026-01-01 --created-lte 2026-12-31`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r, err := g.load()
+			if err != nil {
+				return err
+			}
+			c, err := r.moneyClient()
+			if err != nil {
+				return err
+			}
+			params := waffle.ChargeListParams{
+				Limit: limit, StartingAfter: startingAfter, Status: status,
+				CreatedGTE: createdGTE, CreatedLTE: createdLTE,
+			}
+
+			if all {
+				var charges []*waffle.Charge
+				for charge, err := range c.AllCharges(cmd.Context(), params) {
+					if err != nil {
+						return err
+					}
+					charges = append(charges, charge)
+				}
+				return printChargeList(charges, false)
+			}
+
+			page, err := c.ListCharges(cmd.Context(), params)
+			if err != nil {
+				return err
+			}
+			charges := make([]*waffle.Charge, len(page.Data))
+			for i := range page.Data {
+				charges[i] = &page.Data[i]
+			}
+			return printChargeList(charges, page.HasMore)
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 0, "max results per page (server default 20, max 100)")
+	cmd.Flags().StringVar(&startingAfter, "starting-after", "", "cursor: last charge id from the previous page")
+	cmd.Flags().StringVar(&status, "status", "", "pending | paid | failed | expired")
+	cmd.Flags().StringVar(&createdGTE, "created-gte", "", "RFC3339 or YYYY-MM-DD lower bound on created_at")
+	cmd.Flags().StringVar(&createdLTE, "created-lte", "", "RFC3339 or YYYY-MM-DD upper bound on created_at")
+	cmd.Flags().BoolVar(&all, "all", false, "auto-paginate through every matching charge")
+	return cmd
+}
+
+func printChargeList(charges []*waffle.Charge, hasMore bool) error {
+	if g.jsonOut {
+		return emitJSON(os.Stdout, struct {
+			Data    []*waffle.Charge `json:"data"`
+			HasMore bool             `json:"has_more"`
+		}{charges, hasMore})
+	}
+	rows := make([][]string, 0, len(charges))
+	for _, charge := range charges {
+		rows = append(rows, []string{charge.ID, charge.Status, money(charge.GrossAmount, charge.Currency), charge.CreatedAt})
+	}
+	printTable(os.Stdout, []string{"ID", "STATUS", "AMOUNT", "CREATED"}, rows)
+	if hasMore {
+		fmt.Fprintln(os.Stdout, "\n(more results available — pass --starting-after <last id>, or --all)")
+	}
+	return nil
+}
+
+func newChargesReceiptCmd() *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "receipt <charge-id>",
+		Short: "Download a charge's PDF receipt (GET /v1/charges/{id}/receipt.pdf)",
+		Long: `Download the PDF receipt (bukti pembayaran) for a paid charge.
+409 if the charge isn't paid yet. Writes raw PDF bytes to --output, or
+to <charge-id>.pdf in the current directory when --output is omitted.`,
+		Args:    cobra.ExactArgs(1),
+		Example: `  waffle charges receipt chg_abc123 --output receipt.pdf`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r, err := g.load()
+			if err != nil {
+				return err
+			}
+			c, err := r.moneyClient()
+			if err != nil {
+				return err
+			}
+			pdf, err := c.GetChargeReceipt(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			path := output
+			if path == "" {
+				path = args[0] + ".pdf"
+			}
+			if err := os.WriteFile(path, pdf, 0o644); err != nil {
+				return fmt.Errorf("writing %s: %w", path, err)
+			}
+			if g.jsonOut {
+				return emitJSON(os.Stdout, map[string]string{"path": path})
+			}
+			fmt.Fprintf(os.Stdout, "Receipt written to %s (%d bytes)\n", path, len(pdf))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&output, "output", "", "output file path (default: <charge-id>.pdf)")
+	return cmd
+}
+
+// newBankAccountsCmd is read-only by design: bank-account registration
+// (POST /v1/bank-accounts) was removed server-side. A merchant's
+// withdrawal destination is managed exclusively through the dashboard
+// (its own KYC/verification flow) — never via API key, so this CLI has
+// no "register" subcommand and never will.
+func newBankAccountsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "bank-accounts",
+		Short: "Inspect your withdrawal bank account (read-only; managed via the dashboard)",
+	}
+	cmd.AddCommand(newBankAccountsGetCmd())
 	return cmd
 }
 
 func newBankAccountsGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get",
-		Short: "Show the current active withdrawal account",
+		Short: "Show the current active withdrawal account (masked)",
+		Long: `Show the masked active withdrawal account (GET /v1/bank-accounts,
+scope payouts:read). The account number is masked here (e.g.
+"••••7890") — "waffle payouts get" returns the unmasked number for one
+specific payout. To register or change the withdrawal account, use the
+dashboard: KYC and account management stay dashboard-only, never
+SDK/CLI.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, err := g.load()
 			if err != nil {
@@ -371,7 +515,7 @@ func newBankAccountsGetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			acct, err := c.GetActiveBankAccount(cmd.Context())
+			acct, err := c.GetBankAccount(cmd.Context())
 			if err != nil {
 				var apiErr *waffle.APIError
 				if g.jsonOut && errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
@@ -469,7 +613,168 @@ automatically, no action needed.`,
 	create.Flags().Int64Var(&amount, "amount", 0, "amount, integer minor unit (required)")
 	create.Flags().StringVar(&currency, "currency", "IDR", "currency code")
 	create.Flags().StringVar(&idemKey, "idempotency-key", "", "reuse across retries to guarantee a single payout (auto-generated when omitted)")
-	cmd.AddCommand(create)
+	cmd.AddCommand(create, newPayoutsGetCmd(), newPayoutsListCmd(), newPayoutsReceiptCmd())
+	return cmd
+}
+
+func payoutRows(p *waffle.Payout) []kv {
+	rows := []kv{
+		row("Payout", p.ID),
+		row("Status", p.Status),
+		row("Amount", money(p.Amount, p.Currency)),
+		row("Bank account", p.BankAccountID),
+		row("Bank", p.BankCode),
+		row("Account", p.AccountNumber),
+		row("Holder", p.AccountHolderName),
+		row("Created", p.CreatedAt),
+		row("Completed", p.CompletedAt),
+		row("Failure reason", p.FailureReason),
+	}
+	if p.Status == "held" {
+		rows = append(rows, row("Note", "security hold on the fresh bank account — resumes automatically"))
+	}
+	return rows
+}
+
+func newPayoutsGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "get <payout-id>",
+		Short:   "Show one payout (GET /v1/payouts/{id})",
+		Args:    cobra.ExactArgs(1),
+		Example: `  waffle payouts get po_abc123`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r, err := g.load()
+			if err != nil {
+				return err
+			}
+			c, err := r.moneyClient()
+			if err != nil {
+				return err
+			}
+			p, err := c.GetPayout(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if g.jsonOut {
+				return emitJSON(os.Stdout, p)
+			}
+			printKV(os.Stdout, "", payoutRows(p))
+			return nil
+		},
+	}
+}
+
+func newPayoutsListCmd() *cobra.Command {
+	var (
+		limit         int
+		startingAfter string
+		status        string
+		all           bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List payouts (GET /v1/payouts)",
+		Long: `List payouts with cursor pagination. Pass --all to auto-paginate
+through every matching payout instead of printing one page.`,
+		Example: `  waffle payouts list --status completed --limit 10
+  waffle payouts list --all`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r, err := g.load()
+			if err != nil {
+				return err
+			}
+			c, err := r.moneyClient()
+			if err != nil {
+				return err
+			}
+			params := waffle.PayoutListParams{Limit: limit, StartingAfter: startingAfter, Status: status}
+
+			if all {
+				var payouts []*waffle.Payout
+				for p, err := range c.AllPayouts(cmd.Context(), params) {
+					if err != nil {
+						return err
+					}
+					payouts = append(payouts, p)
+				}
+				return printPayoutList(payouts, false)
+			}
+
+			page, err := c.ListPayouts(cmd.Context(), params)
+			if err != nil {
+				return err
+			}
+			payouts := make([]*waffle.Payout, len(page.Data))
+			for i := range page.Data {
+				payouts[i] = &page.Data[i]
+			}
+			return printPayoutList(payouts, page.HasMore)
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 0, "max results per page (server default 20, max 100)")
+	cmd.Flags().StringVar(&startingAfter, "starting-after", "", "cursor: last payout id from the previous page")
+	cmd.Flags().StringVar(&status, "status", "", "pending | held | processing | completed | failed")
+	cmd.Flags().BoolVar(&all, "all", false, "auto-paginate through every matching payout")
+	return cmd
+}
+
+func printPayoutList(payouts []*waffle.Payout, hasMore bool) error {
+	if g.jsonOut {
+		return emitJSON(os.Stdout, struct {
+			Data    []*waffle.Payout `json:"data"`
+			HasMore bool             `json:"has_more"`
+		}{payouts, hasMore})
+	}
+	rows := make([][]string, 0, len(payouts))
+	for _, p := range payouts {
+		rows = append(rows, []string{p.ID, p.Status, money(p.Amount, p.Currency), p.BankAccountID})
+	}
+	printTable(os.Stdout, []string{"ID", "STATUS", "AMOUNT", "BANK ACCOUNT"}, rows)
+	if hasMore {
+		fmt.Fprintln(os.Stdout, "\n(more results available — pass --starting-after <last id>, or --all)")
+	}
+	return nil
+}
+
+func newPayoutsReceiptCmd() *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "receipt <payout-id>",
+		Short: "Download a payout's PDF receipt (GET /v1/payouts/{id}/receipt.pdf)",
+		Long: `Download the PDF receipt (bukti pencairan dana) for a completed
+payout. 409 if the payout isn't completed yet. Writes raw PDF bytes to
+--output, or to <payout-id>.pdf in the current directory when --output
+is omitted.`,
+		Args:    cobra.ExactArgs(1),
+		Example: `  waffle payouts receipt po_abc123 --output receipt.pdf`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r, err := g.load()
+			if err != nil {
+				return err
+			}
+			c, err := r.moneyClient()
+			if err != nil {
+				return err
+			}
+			pdf, err := c.GetPayoutReceipt(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			path := output
+			if path == "" {
+				path = args[0] + ".pdf"
+			}
+			if err := os.WriteFile(path, pdf, 0o644); err != nil {
+				return fmt.Errorf("writing %s: %w", path, err)
+			}
+			if g.jsonOut {
+				return emitJSON(os.Stdout, map[string]string{"path": path})
+			}
+			fmt.Fprintf(os.Stdout, "Receipt written to %s (%d bytes)\n", path, len(pdf))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&output, "output", "", "output file path (default: <payout-id>.pdf)")
 	return cmd
 }
 

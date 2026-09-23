@@ -9,22 +9,30 @@ namespace Waffle\Dto;
  * (POST /v1/charges).
  *
  * There is no `provider` field: the server always auto-routes to the
- * merchant's highest-priority connected PSP (xendit > doku > gdc >
- * sandbox) — which PSPs are connected, and their priority order, is
- * exclusively an admin-controlled decision, never something a merchant
- * names.
+ * merchant's highest-priority connected PSP — which PSPs are connected,
+ * and their priority order, is exclusively an admin-controlled decision,
+ * never something a merchant names.
  *
  * `channel` selects a specific payment channel instead of the default
  * redirect-based checkout flow. Accepted values are `"qris"` and
  * `"virtual_account"`; leave it `null` for the original redirect-only
  * behavior (a `checkoutUrl` is returned). `vaBank` is required only when
  * `channel` is `"virtual_account"`.
+ *
+ * `checkoutChannelSelection` defaults to `"merchant"` server-side (the
+ * one-phase flow: Waffle prices and dispatches the charge immediately).
+ * Pass `"payer"` to defer both pricing and provider dispatch until the
+ * payer picks a method on Waffle's own hosted checkout page
+ * (`/pay/{id}`) — this requires `channel` and `vaBank` to be omitted (a
+ * merchant cannot both defer the choice and pre-pick it).
  */
 final class CreateChargeParams implements \JsonSerializable
 {
     /**
      * @param int $amount integer minor-unit amount — never a float
      * @param array<string,string>|null $metadata
+     * @param string|null $checkoutChannelSelection `"merchant"` (default)
+     *   or `"payer"`
      */
     public function __construct(
         public readonly int $amount,
@@ -36,6 +44,7 @@ final class CreateChargeParams implements \JsonSerializable
         public readonly ?array $metadata = null,
         public readonly ?string $channel = null,
         public readonly ?string $vaBank = null,
+        public readonly ?string $checkoutChannelSelection = null,
     ) {
     }
 
@@ -63,6 +72,9 @@ final class CreateChargeParams implements \JsonSerializable
         }
         if ($this->vaBank !== null) {
             $body['va_bank'] = $this->vaBank;
+        }
+        if ($this->checkoutChannelSelection !== null) {
+            $body['checkout_channel_selection'] = $this->checkoutChannelSelection;
         }
         if ($this->metadata !== null) {
             $body['metadata'] = $this->metadata;
