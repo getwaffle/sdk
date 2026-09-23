@@ -23,6 +23,11 @@ README for install and usage instructions. API reference:
 [docs.getwaffle.id](https://getwaffle.id/docs) (`docs/api-contract.md` in
 the backend repo is the ground-truth contract these SDKs implement).
 
+Every SDK and the MCP server cover **transactions only** (charges,
+payouts, balance, banks) and respect the calling API key's scopes,
+never KYC, documents, team, settings, or account administration — that
+stays dashboard-only by design.
+
 ## Releasing
 
 - **Go / CLI**: tag a release (`go/v1.2.3`, `cli/v1.2.3`) — no publish step,

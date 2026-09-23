@@ -59,6 +59,41 @@ the `command`/`args`/`env` shape is otherwise identical.)
 The process exits immediately with a one-line stderr message if
 `WAFFLE_API_KEY` is unset — a host sees a failed launch, not a hang.
 
+## Startup scope-gating
+
+On start, this server calls `whoami()` once with the configured key and
+registers **only** the tools that key's scopes allow — never zero tools,
+never every tool regardless of what the key can actually do. If
+`whoami()` fails (bad key, unreachable API), the process fails loudly
+(non-zero exit, stderr message) rather than silently starting with no
+tools or with every tool.
+
+| Scope | Registers |
+| --- | --- |
+| `charges:read` | `waffle_get_charge`, `waffle_list_charges`, `waffle_get_charge_receipt`, `waffle_calculate_fee` |
+| `charges:write` | `waffle_create_charge` |
+| `payouts:read` | `waffle_get_payout`, `waffle_list_payouts`, `waffle_get_bank_account` |
+| `payouts:write` | `waffle_create_payout` |
+| `balance:read` | `waffle_get_balance` |
+
+`waffle_list_banks`, `waffle_whoami`, and `waffle_healthz` need no scope
+and are always registered.
+
+A `read_only`-preset key (`charges:read` + `payouts:read` +
+`balance:read`) sees `waffle_get_charge`, `waffle_list_charges`,
+`waffle_get_charge_receipt`, `waffle_calculate_fee`,
+`waffle_get_payout`, `waffle_list_payouts`, `waffle_get_bank_account`,
+`waffle_get_balance`, `waffle_list_banks`, `waffle_whoami`, and
+`waffle_healthz` — **never** `waffle_create_charge` or
+`waffle_create_payout`. The calling model can't even see those tools
+exist, let alone attempt (and 403 on) calling them.
+
+KYC, bank-account registration, team/member management, and other
+account settings are **dashboard-only by design** — there is
+intentionally no tool for any of them, scopes notwithstanding; the
+merchant dashboard is the only place to perform onboarding/KYC and
+manage the account.
+
 ## Tools
 
 Every write tool that needs an `Idempotency-Key`
@@ -67,22 +102,34 @@ call — an LLM caller has no retry state of its own to key against, so
 calling the tool twice creates two separate resources, never a
 deduplicated retry. This is the same choice the merchant dashboard's own
 "Buat link bayar" / "Tarik dana" quick-action forms make, for the same
-reason.
+reason. Both also require an explicit `confirm: true` argument — the
+call is refused (without touching the API) if it's false or omitted —
+and their tool descriptions state the configured key's mode (`LIVE` /
+`SANDBOX`) so the calling model knows whether the action moves real
+money before it confirms.
 
-| Tool | Maps to | Read-only | Notes |
-| --- | --- | --- | --- |
-| `waffle_list_banks` | `GET /v1/banks` | yes | Call first for a valid `bankCode`/`vaBank` — codes are not hardcodable. |
-| `waffle_calculate_fee` | `POST /v1/fees/calculate` | yes | Preview only; no charge, no ledger write, no provider call. |
-| `waffle_create_charge` | `POST /v1/charges` | no | Creates a payment link / QRIS / virtual-account charge. |
-| `waffle_get_balance` | `GET /v1/balance` | yes | Withdrawable balance: settled paid charges minus non-failed payouts. |
-| `waffle_get_bank_account` | `GET /v1/bank-accounts` | yes | Returns a recoverable hint (not a generic error) when none is registered yet — registration itself is dashboard-only, deliberately not a tool. |
-| `waffle_create_payout` | `POST /v1/payouts` | no | Withdraws to the registered bank account. |
-| `waffle_healthz` | `GET /healthz` | yes | No auth. |
+| Tool | Maps to | Read-only | Scope | Notes |
+| --- | --- | --- | --- | --- |
+| `waffle_whoami` | `GET /v1/whoami` | yes | none | Merchant, mode, preset, scopes for the configured key. |
+| `waffle_healthz` | `GET /healthz` | yes | none | No auth. |
+| `waffle_list_banks` | `GET /v1/banks` | yes | none | Call first for a valid `bankCode`/`vaBank` — codes are not hardcodable. |
+| `waffle_get_charge` | `GET /v1/charges/{id}` | yes | `charges:read` | 404s if the charge doesn't exist or isn't this merchant's. |
+| `waffle_list_charges` | `GET /v1/charges` | yes | `charges:read` | Cursor-paginated, filterable by status/created-at. |
+| `waffle_get_charge_receipt` | `GET /v1/charges/{id}/receipt.pdf` | yes | `charges:read` | Confirms the receipt exists and returns its path — never the raw PDF bytes, since those aren't for a model to read. 409s if the charge isn't paid yet. |
+| `waffle_calculate_fee` | `POST /v1/fees/calculate` | yes | `charges:read` | Preview only; no charge, no ledger write, no provider call. |
+| `waffle_create_charge` | `POST /v1/charges` | no | `charges:write` | Creates a payment link / QRIS / virtual-account charge. Requires `confirm: true`. |
+| `waffle_get_payout` | `GET /v1/payouts/{id}` | yes | `payouts:read` | 404s if the payout doesn't exist or isn't this merchant's. |
+| `waffle_list_payouts` | `GET /v1/payouts` | yes | `payouts:read` | Cursor-paginated, filterable by status/created-at. |
+| `waffle_get_bank_account` | `GET /v1/bank-accounts` | yes | `payouts:read` | Returns a recoverable hint (not a generic error) when none is registered yet — registration itself is dashboard-only, deliberately not a tool. |
+| `waffle_create_payout` | `POST /v1/payouts` | no | `payouts:write` | Withdraws to the registered bank account. Requires `confirm: true`. |
+| `waffle_get_balance` | `GET /v1/balance` | yes | `balance:read` | Withdrawable balance: settled paid charges minus non-failed payouts. |
 
 There is no `provider` argument on any tool: Waffle always auto-routes
 a charge or payout to the merchant's highest-priority connected PSP, and
 which PSP handled it is never surfaced — see `docs/BUILD_PLAN.md`'s
-white-label rule.
+white-label rule. There is also no `waffle_get_payout_receipt` tool —
+the SDK's `getPayoutReceipt` deliberately isn't exposed here, to keep
+this server's surface to the tools above only.
 
 ## Errors
 
@@ -98,12 +145,15 @@ channel is its result content.
 ## Use as a library
 
 `createServer` is also exported for embedding this tool set into a
-larger MCP server or for in-process testing (see `src/server.test.ts`):
+larger MCP server or for in-process testing (see `src/server.test.ts`).
+It's `async` — it calls `whoami()` before returning so it can scope-gate
+which tools get registered — so `await` it (or handle the rejection if
+the key is bad):
 
 ```ts
 import { createServer } from "@waffle/mcp";
 
-const server = createServer({ apiKey: process.env.WAFFLE_API_KEY! });
+const server = await createServer({ apiKey: process.env.WAFFLE_API_KEY! });
 ```
 
 ## Local development

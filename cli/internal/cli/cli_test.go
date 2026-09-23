@@ -313,27 +313,26 @@ func TestLogoutClearsCredentials(t *testing.T) {
 	}
 }
 
-func TestBankAccountsRegisterSendsAPIKey(t *testing.T) {
+func TestBankAccountsGetSendsAPIKey(t *testing.T) {
 	withConfig(t)
 	var rec recorder
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec.record(r)
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"id":"ba_1","bank_code":"BCA","account_number":"1234567890","account_holder_name":"Budi"}`))
+		_, _ = w.Write([]byte(`{"id":"ba_1","bank_code":"BCA","account_number":"••••7890","account_holder_name":"Budi","created_at":"2026-09-08T01:00:00Z"}`))
 	}))
 	defer srv.Close()
 	t.Setenv("WAFFLE_API_KEY", "sk_live_x")
 
-	if _, err := runCLI(t, "bank-accounts", "register", "--bank-code", "BCA",
-		"--account-number", "1234567890", "--account-holder-name", "Budi", "--base-url", srv.URL); err != nil {
-		t.Fatalf("register: %v", err)
+	out, err := runCLI(t, "bank-accounts", "get", "--base-url", srv.URL)
+	if err != nil {
+		t.Fatalf("get: %v", err)
 	}
 	if rec.path != "/v1/bank-accounts" || rec.auth != "Bearer sk_live_x" {
 		t.Errorf("got %s auth %q", rec.path, rec.auth)
 	}
-	if rec.bodies[0]["account_holder_name"] != "Budi" {
-		t.Errorf("body = %v", rec.bodies[0])
+	if !strings.Contains(out, "••••7890") {
+		t.Errorf("output missing masked account number: %q", out)
 	}
 }
 
@@ -354,6 +353,106 @@ func TestPayoutsCreateAutoIdempotency(t *testing.T) {
 	}
 	if rec.path != "/v1/payouts" || rec.idem == "" {
 		t.Errorf("path=%q idem=%q", rec.path, rec.idem)
+	}
+}
+
+func TestChargesGetAndList(t *testing.T) {
+	withConfig(t)
+	var gotPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path+"?"+r.URL.RawQuery)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/v1/charges/chg_1":
+			_, _ = w.Write([]byte(`{"id":"chg_1","mode":"sandbox","status":"paid","gross_amount":100000,"fee_amount":3000,"net_amount":97000,"currency":"IDR","created_at":"2026-09-08T01:00:00Z","paid_at":"2026-09-08T01:05:00Z"}`))
+		case r.URL.Path == "/v1/charges":
+			_, _ = w.Write([]byte(`{"data":[{"id":"chg_1","mode":"sandbox","status":"paid","gross_amount":100000,"fee_amount":3000,"net_amount":97000,"currency":"IDR","created_at":"2026-09-08T01:00:00Z"}],"has_more":false}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("WAFFLE_API_KEY", "sk_test")
+
+	out, err := runCLI(t, "charges", "get", "chg_1", "--base-url", srv.URL)
+	if err != nil {
+		t.Fatalf("charges get: %v", err)
+	}
+	if !strings.Contains(out, "chg_1") || !strings.Contains(out, "paid") {
+		t.Errorf("charges get output missing fields: %q", out)
+	}
+
+	out, err = runCLI(t, "charges", "list", "--status", "paid", "--limit", "5", "--base-url", srv.URL)
+	if err != nil {
+		t.Fatalf("charges list: %v", err)
+	}
+	if !strings.Contains(out, "chg_1") {
+		t.Errorf("charges list output missing charge: %q", out)
+	}
+	found := false
+	for _, p := range gotPaths {
+		if strings.Contains(p, "status=paid") && strings.Contains(p, "limit=5") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a /v1/charges call with status=paid&limit=5, got %v", gotPaths)
+	}
+}
+
+func TestPayoutsGetAndList(t *testing.T) {
+	withConfig(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/payouts/po_1":
+			_, _ = w.Write([]byte(`{"id":"po_1","bank_account_id":"ba_1","mode":"sandbox","status":"completed","amount":20000,"currency":"IDR","account_number":"1234567890"}`))
+		case "/v1/payouts":
+			_, _ = w.Write([]byte(`{"data":[{"id":"po_1","bank_account_id":"ba_1","mode":"sandbox","status":"completed","amount":20000,"currency":"IDR"}],"has_more":false}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("WAFFLE_API_KEY", "sk_test")
+
+	out, err := runCLI(t, "payouts", "get", "po_1", "--base-url", srv.URL)
+	if err != nil {
+		t.Fatalf("payouts get: %v", err)
+	}
+	if !strings.Contains(out, "1234567890") {
+		t.Errorf("payouts get output missing unmasked account number: %q", out)
+	}
+
+	out, err = runCLI(t, "payouts", "list", "--base-url", srv.URL)
+	if err != nil {
+		t.Fatalf("payouts list: %v", err)
+	}
+	if !strings.Contains(out, "po_1") {
+		t.Errorf("payouts list output missing payout: %q", out)
+	}
+}
+
+func TestKeysWhoamiUsesAPIKey(t *testing.T) {
+	withConfig(t)
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"merchant_id":"m1","business_name":"Toko Budi","mode":"sandbox","preset":"read_only","scopes":["charges:read","payouts:read","balance:read"]}`))
+	}))
+	defer srv.Close()
+	t.Setenv("WAFFLE_API_KEY", "sk_readonly")
+
+	out, err := runCLI(t, "keys", "whoami", "--base-url", srv.URL)
+	if err != nil {
+		t.Fatalf("keys whoami: %v", err)
+	}
+	if gotAuth != "Bearer sk_readonly" {
+		t.Errorf("Authorization = %q, want the API key", gotAuth)
+	}
+	if !strings.Contains(out, "read_only") || !strings.Contains(out, "charges:read") {
+		t.Errorf("keys whoami output missing preset/scopes: %q", out)
 	}
 }
 

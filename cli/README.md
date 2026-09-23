@@ -57,12 +57,48 @@ money-moving surface accepts. The CLI keeps them strictly separate:
 
 | Credential | Source | Authorizes |
 |---|---|---|
-| API key | `--api-key` flag > `WAFFLE_API_KEY` env > stored by `login`/`keys create`/`configure` | `balance`, `charges`, `bank-accounts`, `payouts` |
-| Session token | stored by `login` | `whoami`, `keys` (`/v1/merchants/me/*` only) |
+| API key | `--api-key` flag > `WAFFLE_API_KEY` env > stored by `login`/`keys create`/`configure` | `balance`, `charges`, `bank-accounts`, `payouts`, `keys whoami` |
+| Session token | stored by `login` | `whoami`, `keys list/create/revoke` (`/v1/merchants/me/*` only) |
 
 Precedence for the base URL: `--base-url` flag > `WAFFLE_BASE_URL`
 env > stored profile value > `https://api.getwaffle.id` (the SDK
 default, production — pass `http://localhost:8080` for local dev).
+
+## Scopes and presets
+
+API keys carry a scope grant, independent of the dashboard session:
+`charges:read`, `charges:write`, `payouts:read`, `payouts:write`,
+`balance:read`. A `*:write` scope does **not** imply the matching
+`*:read` scope. Keys are usually minted from a preset:
+
+| Preset | Scopes |
+|---|---|
+| `read_only` | `charges:read`, `payouts:read`, `balance:read` |
+| `accept_payments` | `charges:read`, `charges:write`, `balance:read` |
+| `full` | all five |
+| `custom` | whatever was explicitly granted |
+
+`waffle keys whoami` shows the *configured* key's own mode/preset/scopes
+(`GET /v1/whoami`, no scope required — this is different from top-level
+`waffle whoami`, which shows the *dashboard session's* merchant account
+via `GET /v1/merchants/me/profile`). A `403` from a scoped command names
+the missing scope, e.g. `error: HTTP 403: this API key lacks the
+charges:write permission`.
+
+A `read_only` key can run `waffle charges get`, `charges list`,
+`payouts get`, `payouts list`, `balance`, `bank-accounts get`, and `keys
+whoami` — but not `charges create` or `payouts create` (those need the
+`*:write` scopes `read_only` doesn't grant):
+
+```sh
+waffle --api-key sk_sandbox_readonly_xxx charges list --status paid
+waffle --api-key sk_sandbox_readonly_xxx charges create --amount 1000
+# error: HTTP 403: this API key lacks the charges:write permission
+```
+
+KYC and withdrawal-account management are **dashboard-only by design** —
+there is no `bank-accounts register` command and never will be; see
+"What the CLI does not do" below.
 
 ## Config file
 
@@ -81,28 +117,37 @@ destroy stored credentials.
 ```
 waffle login [--email x] [--api-key wf_...] [--open]   # session flow, or store a key directly
 waffle logout                                          # clears session + key
-waffle whoami                                          # GET /v1/merchants/me/profile
+waffle whoami                                          # GET /v1/merchants/me/profile (dashboard session)
 waffle configure --api-key k [--base-url u] [--dashboard-url u]
 
 waffle keys list                                       # session-authenticated
 waffle keys create [--name label] [--no-store]         # sandbox-only (live keys are admin-issued)
 waffle keys revoke <id>
+waffle keys whoami                                     # GET /v1/whoami (API key) — mode/preset/scopes
 
-waffle balance [--currency IDR]                        # withdrawable balance
-waffle banks list                                      # public bank directory
+waffle balance [--currency IDR]                        # withdrawable balance, scope balance:read
+waffle banks list                                      # public bank directory, no auth
 
-waffle charges create --amount 50000 [--currency IDR]
+waffle charges create --amount 50000 [--currency IDR]  # scope charges:write
     [--channel qris|virtual_account] [--va-bank BCA]
+    [--checkout-channel-selection merchant|payer]
     [--description ...] [--customer-ref ...] [--return-url ...]
     [--expires-in-minutes 60] [--metadata k=v ...]
     [--idempotency-key ...]                               # auto-generated when omitted
-waffle charges calculate-fee --amount 100000 [--channel ...] [--va-bank ...]
+waffle charges calculate-fee --amount 100000 [--channel ...] [--va-bank ...]  # scope charges:read
+waffle charges get <charge-id>                          # scope charges:read
+waffle charges list [--status ...] [--limit N] [--starting-after ID]
+    [--created-gte ...] [--created-lte ...] [--all]      # scope charges:read
+waffle charges receipt <charge-id> [--output file.pdf]  # scope charges:read; 409 if not paid
 
-waffle bank-accounts register --bank-code BCA --account-number ... --account-holder-name ...
-waffle bank-accounts get
+waffle bank-accounts get                                # scope payouts:read; masked, read-only
+                                                          # (registration is dashboard-only, no CLI command)
 
 waffle payouts create --bank-account-id <uuid> --amount 20000 [--currency IDR]
-    [--idempotency-key ...]
+    [--idempotency-key ...]                               # scope payouts:write
+waffle payouts get <payout-id>                           # scope payouts:read
+waffle payouts list [--status ...] [--limit N] [--starting-after ID] [--all]  # scope payouts:read
+waffle payouts receipt <payout-id> [--output file.pdf]   # scope payouts:read; 409 if not completed
 
 waffle healthz                                         # no auth
 

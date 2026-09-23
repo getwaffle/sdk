@@ -19,11 +19,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 )
 
 // DefaultBaseURL is the default merchant API base URL — Waffle's
@@ -106,10 +108,73 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("waffle: HTTP %d: %s", e.StatusCode, e.Message)
 }
 
+// PermissionError is a typed layer over a 403 *APIError whose message
+// matches the API key's scope model: `"this API key lacks the <scope>
+// permission"`. Scope carries just the missing scope as a plain string
+// (e.g. "charges:write") — this SDK has zero dependency on the
+// backend's internal/apikey package, so it never imports a Scope type,
+// it just parses the literal substring out of the error message.
+//
+// It wraps the underlying *APIError, so both errors.As targets work on
+// the same error:
+//
+//	var permErr *waffle.PermissionError
+//	if errors.As(err, &permErr) {
+//	    log.Printf("missing scope: %s", permErr.Scope)
+//	}
+//	var apiErr *waffle.APIError
+//	errors.As(err, &apiErr) // also succeeds — same underlying 403
+type PermissionError struct {
+	// Scope is the single scope the API key was missing, e.g.
+	// "charges:write" or "payouts:read".
+	Scope string
+	// Message is the server's original error message.
+	Message string
+	// Err is the underlying *APIError (same StatusCode/Message) that
+	// errors.As(err, &apiErr) unwraps to.
+	Err *APIError
+}
+
+func (e *PermissionError) Error() string { return e.Message }
+
+func (e *PermissionError) Unwrap() error { return e.Err }
+
+// permissionErrorPattern extracts the missing scope from the server's
+// 403 body: `{"error": "this API key lacks the <scope> permission"}`.
+// The literal substring "lacks the " + scope + " permission" is the
+// frozen contract this SDK parses against.
+var permissionErrorPattern = regexp.MustCompile(`lacks the (\S+) permission`)
+
 // errorBody mirrors the frozen `{"error": "..."}` shape used by every
 // non-2xx response on both the merchant and admin APIs.
 type errorBody struct {
 	Error string `json:"error"`
+}
+
+// translateError converts a non-2xx status code and raw response body
+// into the SDK's error hierarchy: a 403 matching the "lacks the <scope>
+// permission" shape becomes a wrapped *PermissionError (itself wrapping
+// the underlying *APIError); everything else becomes a wrapped
+// *APIError directly. Shared by doJSON and doRaw so every call site
+// (JSON and raw-bytes alike, e.g. the PDF receipt endpoints) gets the
+// same typed-error treatment.
+func translateError(statusCode int, respBody []byte) error {
+	var eb errorBody
+	msg := string(respBody)
+	if json.Unmarshal(respBody, &eb) == nil && eb.Error != "" {
+		msg = eb.Error
+	}
+	apiErr := &APIError{StatusCode: statusCode, Message: msg}
+	if statusCode == http.StatusForbidden {
+		if m := permissionErrorPattern.FindStringSubmatch(msg); m != nil {
+			return fmt.Errorf("waffle: request failed: %w", &PermissionError{
+				Scope:   m[1],
+				Message: msg,
+				Err:     apiErr,
+			})
+		}
+	}
+	return fmt.Errorf("waffle: request failed: %w", apiErr)
 }
 
 // doJSON performs an HTTP request with an optional JSON-encoded body and
@@ -157,15 +222,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var eb errorBody
-		msg := string(respBody)
-		if json.Unmarshal(respBody, &eb) == nil && eb.Error != "" {
-			msg = eb.Error
-		}
-		return fmt.Errorf("waffle: request failed: %w", &APIError{
-			StatusCode: resp.StatusCode,
-			Message:    msg,
-		})
+		return translateError(resp.StatusCode, respBody)
 	}
 
 	if out != nil && len(respBody) > 0 {
@@ -174,6 +231,36 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 		}
 	}
 	return nil
+}
+
+// doRaw performs an authenticated GET request and returns the raw
+// response body verbatim, translating a non-2xx response the same way
+// doJSON does. Used by the PDF receipt endpoints, whose success
+// response is `application/pdf` bytes, not JSON.
+func (c *Client) doRaw(ctx context.Context, method, path string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("waffle: building request: %w", err)
+	}
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("waffle: performing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("waffle: reading response body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, translateError(resp.StatusCode, respBody)
+	}
+	return respBody, nil
 }
 
 // GenerateIdempotencyKey returns a random, URL-safe, unique-enough string
@@ -240,10 +327,15 @@ type CreateChargeParams struct {
 	// "virtual_account"; leave it as the empty string for the original
 	// redirect-only behavior (a CheckoutURL is returned). VABank is
 	// required only when Channel is "virtual_account".
-	Channel          string            `json:"channel,omitempty"`
-	VABank           string            `json:"va_bank,omitempty"`
-	ExpiresInMinutes int               `json:"expires_in_minutes,omitempty"`
-	Metadata         map[string]string `json:"metadata,omitempty"`
+	Channel          string `json:"channel,omitempty"`
+	VABank           string `json:"va_bank,omitempty"`
+	ExpiresInMinutes int    `json:"expires_in_minutes,omitempty"`
+	// CheckoutChannelSelection is "merchant" (default behavior when
+	// empty) or "payer": "payer" lets the payer pick their own channel
+	// at checkout, in which case the charge is created unpriced (no fee
+	// quote yet) and Charge.Breakdown is nil until the payer chooses.
+	CheckoutChannelSelection string            `json:"checkout_channel_selection,omitempty"`
+	Metadata                 map[string]string `json:"metadata,omitempty"`
 }
 
 // Charge is the response shape for CreateCharge (POST /v1/charges,
@@ -273,21 +365,62 @@ type Charge struct {
 	VANumber  string            `json:"va_number,omitempty"`
 	CreatedAt string            `json:"created_at"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
+	// CheckoutChannelSelection echoes the request's field; see
+	// CreateChargeParams.CheckoutChannelSelection.
+	CheckoutChannelSelection string `json:"checkout_channel_selection,omitempty"`
+	// Breakdown is the fee/settlement breakdown for this charge. It is
+	// nil for an unpriced "payer"-channel-selection charge that hasn't
+	// had a channel picked yet.
+	Breakdown *ChargeBreakdown `json:"breakdown,omitempty"`
+	// PaidAt, ExpiresAt, and SettledAt are populated by GetCharge/
+	// ListCharges (GET), not by CreateCharge's own 201 response.
+	PaidAt    string `json:"paid_at,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	SettledAt string `json:"settled_at,omitempty"`
 }
 
-// CreateCharge calls POST /v1/charges. idempotencyKey is required (sent as
-// the Idempotency-Key header) — retrying the exact same key returns the
-// original charge rather than creating a duplicate. Use
-// GenerateIdempotencyKey or your own scheme (e.g. an internal order id);
-// this SDK never generates one silently.
+// ChargeBreakdown is the fee/settlement breakdown attached to a Charge.
+type ChargeBreakdown struct {
+	// BaseAmount is nullable: nil for an unpriced "payer"-channel-
+	// selection charge.
+	BaseAmount *int64 `json:"base_amount"`
+	FeeAmount  int64  `json:"fee_amount"`
+	// FeeBearer is "merchant" or "customer", nullable for the same
+	// reason as BaseAmount.
+	FeeBearer        *string       `json:"fee_bearer"`
+	FeeRule          ChargeFeeRule `json:"fee_rule"`
+	PayerPaid        int64         `json:"payer_paid"`
+	MerchantReceives int64         `json:"merchant_receives"`
+	Channel          string        `json:"channel"`
+	VABank           string        `json:"va_bank"`
+}
+
+// ChargeFeeRule is the fee rule that priced a ChargeBreakdown. Type is
+// "percentage" or "flat"; only the matching field (PercentBps or
+// FlatAmount) is meaningful.
+type ChargeFeeRule struct {
+	Type       string `json:"type"`
+	PercentBps int64  `json:"percent_bps"`
+	FlatAmount int64  `json:"flat_amount"`
+}
+
+// CreateCharge calls POST /v1/charges. idempotencyKey is sent as the
+// Idempotency-Key header — retrying the exact same key returns the
+// original charge rather than creating a duplicate. Idempotency-Key
+// stays required by the contract, but this SDK auto-generates one (via
+// GenerateIdempotencyKey) when idempotencyKey is the empty string, so
+// callers who don't care about pinning a specific key don't have to
+// call the helper themselves. Pass your own (e.g. an internal order id)
+// when you want retry-safety across separate calls.
 //
 // Possible errors (via errors.As(err, &apiErr)): 400 malformed
 // amount/currency; 422 no gateway/fee rule for the auto-routed provider,
 // zero connected PSPs, or the provider call failed; 429 fraud velocity
-// limit exceeded.
+// limit exceeded; 403 (via errors.As(err, &permErr)) the API key lacks
+// the charges:write scope.
 func (c *Client) CreateCharge(ctx context.Context, params CreateChargeParams, idempotencyKey string) (*Charge, error) {
 	if idempotencyKey == "" {
-		return nil, errors.New("waffle: idempotencyKey is required for CreateCharge")
+		idempotencyKey = GenerateIdempotencyKey()
 	}
 	var out Charge
 	err := c.doJSON(ctx, http.MethodPost, "/v1/charges", nil,
@@ -296,6 +429,117 @@ func (c *Client) CreateCharge(ctx context.Context, params CreateChargeParams, id
 		return nil, err
 	}
 	return &out, nil
+}
+
+// GetCharge calls GET /v1/charges/{id} (scope charges:read). Returns a
+// wrapped *APIError with StatusCode 404 (message "charge not found") if
+// id doesn't exist or belongs to another merchant.
+func (c *Client) GetCharge(ctx context.Context, id string) (*Charge, error) {
+	var out Charge
+	err := c.doJSON(ctx, http.MethodGet, "/v1/charges/"+url.PathEscape(id), nil, nil, nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ChargeListParams filters and paginates ListCharges/AllCharges (GET
+// /v1/charges). Zero values omit the corresponding query parameter,
+// letting the server apply its own default (Limit defaults to 20,
+// server-side, max 100).
+type ChargeListParams struct {
+	Limit         int
+	StartingAfter string
+	// Status filters to one of "pending", "paid", "failed", "expired".
+	Status string
+	// CreatedGTE and CreatedLTE filter on created_at, RFC3339 or
+	// YYYY-MM-DD.
+	CreatedGTE string
+	CreatedLTE string
+}
+
+func (p ChargeListParams) query() url.Values {
+	q := url.Values{}
+	if p.Limit > 0 {
+		q.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.StartingAfter != "" {
+		q.Set("starting_after", p.StartingAfter)
+	}
+	if p.Status != "" {
+		q.Set("status", p.Status)
+	}
+	if p.CreatedGTE != "" {
+		q.Set("created[gte]", p.CreatedGTE)
+	}
+	if p.CreatedLTE != "" {
+		q.Set("created[lte]", p.CreatedLTE)
+	}
+	return q
+}
+
+// ChargeList is one page of ListCharges (GET /v1/charges, 200).
+// Cursor pagination: pass the last element's ID as the next call's
+// ChargeListParams.StartingAfter, and stop once HasMore is false — or
+// use AllCharges to have this done automatically.
+type ChargeList struct {
+	Data    []Charge `json:"data"`
+	HasMore bool     `json:"has_more"`
+}
+
+// ListCharges calls GET /v1/charges (scope charges:read) and returns a
+// single page. See AllCharges for an auto-paginating iterator.
+func (c *Client) ListCharges(ctx context.Context, params ChargeListParams) (*ChargeList, error) {
+	var out ChargeList
+	err := c.doJSON(ctx, http.MethodGet, "/v1/charges", params.query(), nil, nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AllCharges returns an iterator (Go 1.23+ range-over-func, iter.Seq2)
+// over every charge matching params, auto-paginating via
+// starting_after under the hood — one extra request per page of Limit
+// (or the server's default of 20) charges. On a request error the
+// iterator yields (nil, err) once and stops; range breaks out of it in
+// the usual iter.Seq2 way:
+//
+//	for charge, err := range client.AllCharges(ctx, waffle.ChargeListParams{Status: "paid"}) {
+//	    if err != nil {
+//	        log.Fatal(err)
+//	    }
+//	    fmt.Println(charge.ID)
+//	}
+func (c *Client) AllCharges(ctx context.Context, params ChargeListParams) iter.Seq2[*Charge, error] {
+	return func(yield func(*Charge, error) bool) {
+		p := params
+		for {
+			page, err := c.ListCharges(ctx, p)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			for i := range page.Data {
+				if !yield(&page.Data[i], nil) {
+					return
+				}
+			}
+			if !page.HasMore || len(page.Data) == 0 {
+				return
+			}
+			p.StartingAfter = page.Data[len(page.Data)-1].ID
+		}
+	}
+}
+
+// GetChargeReceipt calls GET /v1/charges/{id}/receipt.pdf (scope
+// charges:read) and returns the raw PDF bytes (Content-Type
+// application/pdf) — this method does no parsing, it's just the bytes.
+// Returns a wrapped *APIError with StatusCode 409 if the charge isn't
+// (yet) "paid".
+func (c *Client) GetChargeReceipt(ctx context.Context, id string) ([]byte, error) {
+	return c.doRaw(ctx, http.MethodGet, "/v1/charges/"+url.PathEscape(id)+"/receipt.pdf")
 }
 
 // --- Fees --------------------------------------------------------------
@@ -339,49 +583,32 @@ func (c *Client) CalculateFee(ctx context.Context, params CalculateFeeParams) (*
 }
 
 // --- Bank accounts -------------------------------------------------------
+//
+// There is deliberately no bank-account-registration method here: the
+// route this SDK once called, POST /v1/bank-accounts, has been removed
+// server-side. A merchant's withdrawal destination is managed
+// exclusively through the dashboard (its own KYC/verification flow),
+// never via API key — the credential model never lets an API key
+// redirect where payouts go. See GetBankAccount for the (masked,
+// read-only) bank-accounts route that remains.
 
-// RegisterBankAccountParams is the request body for RegisterBankAccount
-// (POST /v1/bank-accounts). All three fields are required; the server
-// returns 400 if any is empty.
-type RegisterBankAccountParams struct {
-	BankCode          string `json:"bank_code"`
-	AccountNumber     string `json:"account_number"`
-	AccountHolderName string `json:"account_holder_name"`
-}
-
-// BankAccount is the response shape for RegisterBankAccount (POST
-// /v1/bank-accounts, 201) and GetActiveBankAccount (GET
-// /v1/bank-accounts, 200).
+// BankAccount is the response shape for GetBankAccount (GET
+// /v1/bank-accounts, 200). AccountNumber is masked here (e.g.
+// "••••7890") — GetPayout returns the unmasked account number for a
+// specific payout instead.
 type BankAccount struct {
 	ID                string `json:"id"`
 	BankCode          string `json:"bank_code"`
 	AccountNumber     string `json:"account_number"`
 	AccountHolderName string `json:"account_holder_name"`
-	// CreatedAt is when this became the active withdrawal account for
-	// the caller's mode — empty on RegisterBankAccount's own response
-	// (echoed by the server; use GetActiveBankAccount to read it). A
-	// payout drawn against an account within 6 hours of this timestamp
-	// is held rather than dispatched; see Payout.Status's "held" doc.
-	CreatedAt string `json:"created_at,omitempty"`
+	CreatedAt         string `json:"created_at"`
 }
 
-// RegisterBankAccount calls POST /v1/bank-accounts. Registering a new
-// account disables any prior active one for the caller's mode — only one
-// active withdrawal destination per mode at a time.
-func (c *Client) RegisterBankAccount(ctx context.Context, params RegisterBankAccountParams) (*BankAccount, error) {
-	var out BankAccount
-	err := c.doJSON(ctx, http.MethodPost, "/v1/bank-accounts", nil, nil, params, &out)
-	if err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// GetActiveBankAccount calls GET /v1/bank-accounts, returning the
-// caller's current active withdrawal account for their mode. Returns a
-// wrapped *APIError with StatusCode 404 if the merchant has never
-// registered one for this mode.
-func (c *Client) GetActiveBankAccount(ctx context.Context) (*BankAccount, error) {
+// GetBankAccount calls GET /v1/bank-accounts (scope payouts:read),
+// returning the caller's current active withdrawal account for their
+// mode, masked. Returns a wrapped *APIError with StatusCode 404 if the
+// merchant has never registered one for this mode.
+func (c *Client) GetBankAccount(ctx context.Context) (*BankAccount, error) {
 	var out BankAccount
 	err := c.doJSON(ctx, http.MethodGet, "/v1/bank-accounts", nil, nil, nil, &out)
 	if err != nil {
@@ -420,17 +647,29 @@ type Payout struct {
 	Amount        int64  `json:"amount"`
 	Currency      string `json:"currency"`
 	FailureReason string `json:"failure_reason,omitempty"`
+	// BankCode, AccountNumber, AccountHolderName, CreatedAt, and
+	// CompletedAt are populated only by GetPayout/ListPayouts (GET), not
+	// by CreatePayout's own 201 response. AccountNumber here is
+	// unmasked — unlike GetBankAccount's masked view — since it's
+	// scoped to one specific payout the caller already knows about.
+	BankCode          string `json:"bank_code,omitempty"`
+	AccountNumber     string `json:"account_number,omitempty"`
+	AccountHolderName string `json:"account_holder_name,omitempty"`
+	CreatedAt         string `json:"created_at,omitempty"`
+	CompletedAt       string `json:"completed_at,omitempty"`
 }
 
-// CreatePayout calls POST /v1/payouts. idempotencyKey is required (sent as
-// the Idempotency-Key header), same semantics as CreateCharge.
+// CreatePayout calls POST /v1/payouts. idempotencyKey is sent as the
+// Idempotency-Key header, same semantics as CreateCharge: it stays
+// required by the contract, but this SDK auto-generates one when
+// idempotencyKey is the empty string.
 //
 // A 422 with body {"error":"insufficient available balance"} is returned
 // specifically for payout.ErrInsufficientBalance — surfaced here as an
 // *APIError with StatusCode 422 and that Message, same as any other 422.
 func (c *Client) CreatePayout(ctx context.Context, params CreatePayoutParams, idempotencyKey string) (*Payout, error) {
 	if idempotencyKey == "" {
-		return nil, errors.New("waffle: idempotencyKey is required for CreatePayout")
+		idempotencyKey = GenerateIdempotencyKey()
 	}
 	var out Payout
 	err := c.doJSON(ctx, http.MethodPost, "/v1/payouts", nil,
@@ -439,6 +678,90 @@ func (c *Client) CreatePayout(ctx context.Context, params CreatePayoutParams, id
 		return nil, err
 	}
 	return &out, nil
+}
+
+// GetPayout calls GET /v1/payouts/{id} (scope payouts:read). Returns a
+// wrapped *APIError with StatusCode 404 (message "payout not found") if
+// id doesn't exist or belongs to another merchant.
+func (c *Client) GetPayout(ctx context.Context, id string) (*Payout, error) {
+	var out Payout
+	err := c.doJSON(ctx, http.MethodGet, "/v1/payouts/"+url.PathEscape(id), nil, nil, nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PayoutListParams filters and paginates ListPayouts/AllPayouts (GET
+// /v1/payouts). Same cursor-pagination shape as ChargeListParams.
+type PayoutListParams struct {
+	Limit         int
+	StartingAfter string
+	// Status filters to one of "pending", "held", "processing",
+	// "completed", "failed".
+	Status string
+}
+
+func (p PayoutListParams) query() url.Values {
+	q := url.Values{}
+	if p.Limit > 0 {
+		q.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.StartingAfter != "" {
+		q.Set("starting_after", p.StartingAfter)
+	}
+	if p.Status != "" {
+		q.Set("status", p.Status)
+	}
+	return q
+}
+
+// PayoutList is one page of ListPayouts (GET /v1/payouts, 200).
+type PayoutList struct {
+	Data    []Payout `json:"data"`
+	HasMore bool     `json:"has_more"`
+}
+
+// ListPayouts calls GET /v1/payouts (scope payouts:read) and returns a
+// single page. See AllPayouts for an auto-paginating iterator.
+func (c *Client) ListPayouts(ctx context.Context, params PayoutListParams) (*PayoutList, error) {
+	var out PayoutList
+	err := c.doJSON(ctx, http.MethodGet, "/v1/payouts", params.query(), nil, nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AllPayouts returns an auto-paginating iterator over every payout
+// matching params, the same pattern as AllCharges.
+func (c *Client) AllPayouts(ctx context.Context, params PayoutListParams) iter.Seq2[*Payout, error] {
+	return func(yield func(*Payout, error) bool) {
+		p := params
+		for {
+			page, err := c.ListPayouts(ctx, p)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			for i := range page.Data {
+				if !yield(&page.Data[i], nil) {
+					return
+				}
+			}
+			if !page.HasMore || len(page.Data) == 0 {
+				return
+			}
+			p.StartingAfter = page.Data[len(page.Data)-1].ID
+		}
+	}
+}
+
+// GetPayoutReceipt calls GET /v1/payouts/{id}/receipt.pdf (scope
+// payouts:read) and returns the raw PDF bytes. Returns a wrapped
+// *APIError with StatusCode 409 if the payout isn't (yet) "completed".
+func (c *Client) GetPayoutReceipt(ctx context.Context, id string) ([]byte, error) {
+	return c.doRaw(ctx, http.MethodGet, "/v1/payouts/"+url.PathEscape(id)+"/receipt.pdf")
 }
 
 // --- Balance -------------------------------------------------------------
@@ -496,4 +819,34 @@ func (c *Client) ListBanks(ctx context.Context) ([]Bank, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// --- WhoAmI ----------------------------------------------------------------
+
+// WhoAmIResult is the response shape for WhoAmI (GET /v1/whoami, 200):
+// the identity and permissions of the API key making the call.
+type WhoAmIResult struct {
+	MerchantID   string `json:"merchant_id"`
+	BusinessName string `json:"business_name"`
+	Mode         string `json:"mode"`
+	// Preset is one of "read_only", "accept_payments", "full", or
+	// "custom". Scopes is the resolved scope list (5 possible values:
+	// charges:read, charges:write, payouts:read, payouts:write,
+	// balance:read) — the source of truth for what this key can call,
+	// regardless of Preset.
+	Preset string   `json:"preset"`
+	Scopes []string `json:"scopes"`
+}
+
+// WhoAmI calls GET /v1/whoami. Unlike every other method in this
+// package, no scope is required — any valid API key of any preset can
+// call it, which makes it a good first call for a caller that doesn't
+// know its own key's permissions yet.
+func (c *Client) WhoAmI(ctx context.Context) (*WhoAmIResult, error) {
+	var out WhoAmIResult
+	err := c.doJSON(ctx, http.MethodGet, "/v1/whoami", nil, nil, nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

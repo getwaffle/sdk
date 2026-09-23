@@ -7,7 +7,12 @@ namespace Waffle\Dto;
 use Waffle\Enum\ChargeStatus;
 use Waffle\Enum\Mode;
 
-/** Response body for POST /v1/charges (201). */
+/**
+ * Response body for POST /v1/charges (201), GET /v1/charges/{id}, and
+ * each item of GET /v1/charges's `data` array. The latter two add the
+ * full paid/settlement timeline ($paidAt/$expiresAt/$settledAt) on top
+ * of what a freshly created charge carries.
+ */
 final class Charge implements \JsonSerializable
 {
     /**
@@ -15,6 +20,15 @@ final class Charge implements \JsonSerializable
      * @param int $feeAmount integer minor-unit amount — never a float
      * @param int $netAmount integer minor-unit amount — never a float
      * @param array<string,string>|null $metadata
+     * @param string|null $checkoutChannelSelection present only for a
+     *   charge created with `checkoutChannelSelection: "payer"`
+     *   ({@see CreateChargeParams}) that is still awaiting the payer's
+     *   channel choice on Waffle's hosted checkout page.
+     * @param string|null $paidAt present once the PSP confirmed payment
+     * @param string|null $expiresAt present while a pending charge is
+     *   still payable
+     * @param string|null $settledAt present once the net amount becomes
+     *   withdrawable
      */
     public function __construct(
         public readonly string $id,
@@ -31,6 +45,11 @@ final class Charge implements \JsonSerializable
         public readonly ?string $vaNumber,
         public readonly string $createdAt,
         public readonly ?array $metadata,
+        public readonly ?string $checkoutChannelSelection = null,
+        public readonly ?ChargeBreakdown $breakdown = null,
+        public readonly ?string $paidAt = null,
+        public readonly ?string $expiresAt = null,
+        public readonly ?string $settledAt = null,
     ) {
     }
 
@@ -52,6 +71,15 @@ final class Charge implements \JsonSerializable
             vaNumber: isset($data['va_number']) ? (string) $data['va_number'] : null,
             createdAt: (string) $data['created_at'],
             metadata: $data['metadata'] ?? null,
+            checkoutChannelSelection: isset($data['checkout_channel_selection'])
+                ? (string) $data['checkout_channel_selection']
+                : null,
+            breakdown: isset($data['breakdown']) && is_array($data['breakdown'])
+                ? ChargeBreakdown::fromArray($data['breakdown'])
+                : null,
+            paidAt: isset($data['paid_at']) ? (string) $data['paid_at'] : null,
+            expiresAt: isset($data['expires_at']) ? (string) $data['expires_at'] : null,
+            settledAt: isset($data['settled_at']) ? (string) $data['settled_at'] : null,
         );
     }
 
@@ -73,6 +101,11 @@ final class Charge implements \JsonSerializable
             'va_number' => $this->vaNumber,
             'created_at' => $this->createdAt,
             'metadata' => $this->metadata,
+            'checkout_channel_selection' => $this->checkoutChannelSelection,
+            'breakdown' => $this->breakdown?->jsonSerialize(),
+            'paid_at' => $this->paidAt,
+            'expires_at' => $this->expiresAt,
+            'settled_at' => $this->settledAt,
         ];
     }
 }
