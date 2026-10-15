@@ -12,6 +12,9 @@ on:
     paths:
       - "typescript/**"
       - "mcp/**"
+      # Editing this workflow re-runs it; publishing is a no-op for any
+      # package whose version is already on npm.
+      - ".github/workflows/publish-npm.yml"
 
 jobs:
   changes:
@@ -27,14 +30,20 @@ jobs:
           filters: |
             typescript:
               - 'typescript/**'
+              - '.github/workflows/publish-npm.yml'
             mcp:
               - 'mcp/**'
+              - '.github/workflows/publish-npm.yml'
 
   publish:
     needs: changes
     if: ${{ needs.changes.outputs.typescript == 'true' || needs.changes.outputs.mcp == 'true' }}
     runs-on: ubuntu-latest
     strategy:
+      # Publish the SDK before mcp (mcp's published dependency points at it),
+      # and let a failure in one not cancel the other.
+      fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - dir: typescript
@@ -49,6 +58,13 @@ jobs:
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
+      # mcp depends on file:../typescript, and npm builds that directory while
+      # installing mcp, so the SDK's own dev dependencies must be installed
+      # (npm ci also runs its prepare/build) before mcp's install.
+      - name: Install and build the SDK that mcp links to
+        if: matrix.enabled == 'true' && matrix.dir == 'mcp'
+        run: npm ci
+        working-directory: typescript
       - run: npm ci
         if: matrix.enabled == 'true'
         working-directory: ${{ matrix.dir }}
@@ -71,5 +87,11 @@ jobs:
           if [ "$local_version" = "$published_version" ]; then
             echo "$name@$local_version already published, skipping"
             exit 0
+          fi
+          # mcp links the SDK as file:../typescript for local development; a
+          # published package must depend on the registry version instead.
+          if [ "${{ matrix.dir }}" = "mcp" ]; then
+            sdk_version=$(node -p "require('../typescript/package.json').version")
+            npm pkg set "dependencies.@getwaffle/sdk=^$sdk_version"
           fi
           npm publish --access public
