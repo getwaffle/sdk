@@ -13,9 +13,9 @@ backend repo.
 | Language | Package | Path |
 |---|---|---|
 | Go | `github.com/getwaffle/sdk/go` | [`go/`](go/) |
-| TypeScript | [`@waffle/sdk`](https://www.npmjs.com/package/@waffle/sdk) | [`typescript/`](typescript/) |
+| TypeScript | [`@getwaffle/sdk`](https://www.npmjs.com/package/@getwaffle/sdk) | [`typescript/`](typescript/) |
 | PHP | [`waffle/sdk`](https://packagist.org/packages/waffle/sdk) | [`php/`](php/) |
-| MCP server | [`@waffle/mcp`](https://www.npmjs.com/package/@waffle/mcp) | [`mcp/`](mcp/) |
+| MCP server | [`@getwaffle/mcp`](https://www.npmjs.com/package/@getwaffle/mcp) | [`mcp/`](mcp/) |
 | CLI | `github.com/getwaffle/sdk/cli` | [`cli/`](cli/) |
 
 Each subdirectory is independently versioned/published — see its own

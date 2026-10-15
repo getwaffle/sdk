@@ -1,11 +1,11 @@
-# @waffle/mcp
+# @getwaffle/mcp
 
 An [MCP](https://modelcontextprotocol.io) server that exposes the
 Waffle **merchant API** (the `:8080` listener; see
 `docs/api-contract.md` in the main repo) as tools an AI coding agent can
 call directly — create a test charge, check a withdrawable balance,
 withdraw to an already-registered bank account, preview a fee — the
-same surface [`@waffle/sdk`](../typescript) wraps for application code,
+same surface [`@getwaffle/sdk`](../typescript) wraps for application code,
 not the admin API, not the dashboard-session-authenticated
 `/v1/merchants/me/*` routes, and not KYC/onboarding/branding — this
 server is deliberately scoped to money-movement only. Registering (or
@@ -27,7 +27,7 @@ No global install needed; every host below launches it with `npx`.
 ### Claude Code
 
 ```sh
-claude mcp add waffle -e WAFFLE_API_KEY=sk_sandbox_your_key -- npx -y @waffle/mcp
+claude mcp add waffle -e WAFFLE_API_KEY=sk_sandbox_your_key -- npx -y @getwaffle/mcp
 ```
 
 ### Cursor / VS Code (`.cursor/mcp.json` / `.vscode/mcp.json`)
@@ -37,7 +37,7 @@ claude mcp add waffle -e WAFFLE_API_KEY=sk_sandbox_your_key -- npx -y @waffle/mc
   "mcpServers": {
     "waffle": {
       "command": "npx",
-      "args": ["-y", "@waffle/mcp"],
+      "args": ["-y", "@getwaffle/mcp"],
       "env": {
         "WAFFLE_API_KEY": "sk_sandbox_your_key"
       }
@@ -138,7 +138,7 @@ call — it comes back as an ordinary MCP tool result with `isError: true`
 and a `text` block reading `Waffle API error (HTTP <status>):
 <message>`, so the calling model can read the failure and decide whether
 to retry, ask for different arguments, or give up. This mirrors
-`@waffle/sdk`'s `WaffleError` (`status` + `message`), just rendered
+`@getwaffle/sdk`'s `WaffleError` (`status` + `message`), just rendered
 as text instead of a thrown exception, since a tool handler's only error
 channel is its result content.
 
@@ -151,14 +151,14 @@ which tools get registered — so `await` it (or handle the rejection if
 the key is bad):
 
 ```ts
-import { createServer } from "@waffle/mcp";
+import { createServer } from "@getwaffle/mcp";
 
 const server = await createServer({ apiKey: process.env.WAFFLE_API_KEY! });
 ```
 
 ## Local development
 
-`@waffle/sdk` is a `file:../typescript` dependency — this repo has no
+`@getwaffle/sdk` is a `file:../typescript` dependency — this repo has no
 workspace tool (no pnpm/npm workspaces), so build it first, once:
 
 ```sh

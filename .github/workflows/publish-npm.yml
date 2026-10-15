@@ -1,9 +1,9 @@
 name: publish-npm
 
-# Publishes @waffle/sdk and @waffle/mcp to npm when their package.json
+# Publishes @getwaffle/sdk and @getwaffle/mcp to npm when their package.json
 # version changes on a push to main. Needs an NPM_TOKEN repo secret
 # (npmjs.com -> Access Tokens -> Granular Access Token, scoped to publish
-# the @waffle org/scope) — unset until provided, this workflow just no-ops
+# the @getwaffle scope) — unset until provided, this workflow just no-ops
 # (npm publish fails loudly rather than silently) until then.
 
 on:
