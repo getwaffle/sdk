@@ -61,6 +61,10 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::warning title=npm publish skipped::NPM_TOKEN repo secret is not set; ${{ matrix.dir }} was built but not published."
+            exit 0
+          fi
           name=$(node -p "require('./package.json').name")
           local_version=$(node -p "require('./package.json').version")
           published_version=$(npm view "$name" version 2>/dev/null || echo "0.0.0")
