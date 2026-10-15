@@ -20,7 +20,7 @@ namespace Waffle\Exception;
  *          with backoff.
  *   - 500: internal error.
  */
-final class WaffleApiException extends WaffleException
+class WaffleApiException extends WaffleException
 {
     public function __construct(
         public readonly int $statusCode,
