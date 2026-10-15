@@ -1,8 +1,6 @@
 # waffle-go
 
-A Go client SDK for the Waffle **merchant API** (the `:8080` listener;
-see `docs/api-contract.md` in the main repo for the frozen contract this
-SDK implements). This is a standalone Go module — `go get
+A Go client SDK for the Waffle **merchant API**. This is a standalone Go module — `go get
 github.com/getwaffle/sdk/go` — with no dependency on the
 backend monorepo module.
 
@@ -43,9 +41,7 @@ func main() {
 ### Configuring the client
 
 ```go
-// Default base URL is https://api.getwaffle.id (production). Point at
-// local dev against docker-compose.yml instead:
-client := waffle.NewClient("sk_live_...", waffle.WithBaseURL("http://localhost:8080"))
+// The default base URL is https://api.getwaffle.id (production).
 
 // Override the underlying *http.Client (timeouts, transport, tracing, ...):
 client := waffle.NewClient("sk_live_...",

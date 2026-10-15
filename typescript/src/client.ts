@@ -18,9 +18,7 @@ import type {
   WhoAmI,
 } from "./types.js";
 
-/** Default merchant API base URL — Waffle's production API. Pass
- * `baseUrl: "http://localhost:8080"` for local dev against
- * `docker-compose.yml` instead. */
+/** Default merchant API base URL — Waffle's production API. */
 export const DEFAULT_BASE_URL = "https://api.getwaffle.id";
 
 export interface WaffleClientOptions {
@@ -28,8 +26,7 @@ export interface WaffleClientOptions {
   apiKey: string;
   /**
    * Merchant API base URL. Defaults to Waffle's production API
-   * (`https://api.getwaffle.id`). Pass `"http://localhost:8080"` for
-   * local dev against `docker-compose.yml` instead.
+   * (`https://api.getwaffle.id`).
    */
   baseUrl?: string;
   /** Injectable `fetch` implementation; defaults to the global `fetch`. */
@@ -217,7 +214,7 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 }
 
 /**
- * Client for the Waffle merchant API (`:8080` by default).
+ * Client for the Waffle merchant API.
  *
  * The wire format is snake_case JSON; this SDK exposes camelCase request
  * and response fields and converts between the two internally. Every

@@ -21,7 +21,6 @@ describe("WaffleClient", () => {
     fetchMock = vi.fn();
     client = new WaffleClient({
       apiKey: "sk_test_123",
-      baseUrl: "http://localhost:8080",
       fetch: fetchMock as unknown as typeof fetch,
     });
   });
@@ -55,7 +54,7 @@ describe("WaffleClient", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/charges");
+    expect(url).toBe("https://api.getwaffle.id/v1/charges");
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["Authorization"]).toBe(
       "Bearer sk_test_123",
@@ -202,7 +201,7 @@ describe("WaffleClient", () => {
     });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/fees/calculate");
+    expect(url).toBe("https://api.getwaffle.id/v1/fees/calculate");
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["Idempotency-Key"]).toBeUndefined();
     expect(JSON.parse(init.body as string)).toEqual({
@@ -231,7 +230,7 @@ describe("WaffleClient", () => {
     const account = await client.getBankAccount();
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/bank-accounts");
+    expect(url).toBe("https://api.getwaffle.id/v1/bank-accounts");
     expect(init.method).toBe("GET");
     expect(account).toEqual({
       id: "bank-1",
@@ -264,7 +263,7 @@ describe("WaffleClient", () => {
     );
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/payouts");
+    expect(url).toBe("https://api.getwaffle.id/v1/payouts");
     expect((init.headers as Record<string, string>)["Idempotency-Key"]).toBe(
       "idem-key-3",
     );
@@ -289,7 +288,7 @@ describe("WaffleClient", () => {
     const balance = await client.getBalance("IDR");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/balance?currency=IDR");
+    expect(url).toBe("https://api.getwaffle.id/v1/balance?currency=IDR");
     expect(init.method).toBe("GET");
     expect(init.body).toBeUndefined();
     expect(balance).toEqual({ currency: "IDR", amount: 287500 });
@@ -301,7 +300,7 @@ describe("WaffleClient", () => {
     await client.getBalance();
 
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/balance");
+    expect(url).toBe("https://api.getwaffle.id/v1/balance");
   });
 
   it("sends listBanks as an unauthenticated-shaped GET and maps camelCase fields, omitting null logo_url", async () => {
@@ -315,7 +314,7 @@ describe("WaffleClient", () => {
     const banks = await client.listBanks();
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/banks");
+    expect(url).toBe("https://api.getwaffle.id/v1/banks");
     expect(init.method).toBe("GET");
     expect(banks).toEqual([
       { code: "BCA", name: "Bank Central Asia", logoUrl: "https://cdn.example/bca.svg", sortOrder: 1 },
@@ -329,7 +328,7 @@ describe("WaffleClient", () => {
     const healthy = await client.healthz();
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/healthz");
+    expect(url).toBe("https://api.getwaffle.id/healthz");
     expect(init.headers).toBeUndefined();
     expect(healthy).toBe(true);
   });
@@ -504,7 +503,7 @@ describe("WaffleClient", () => {
     const charge = await client.getCharge("charge-1");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/charges/charge-1");
+    expect(url).toBe("https://api.getwaffle.id/v1/charges/charge-1");
     expect(init.method).toBe("GET");
     expect(charge.paidAt).toBe("2026-09-08T01:05:00Z");
     expect(charge.expiresAt).toBe("2026-09-08T02:00:00Z");
@@ -650,7 +649,7 @@ describe("WaffleClient", () => {
     const bytes = await client.getChargeReceipt("charge-1");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/charges/charge-1/receipt.pdf");
+    expect(url).toBe("https://api.getwaffle.id/v1/charges/charge-1/receipt.pdf");
     expect(init.method).toBe("GET");
     expect(bytes).toBeInstanceOf(Uint8Array);
     expect(Array.from(bytes)).toEqual([0x25, 0x50, 0x44, 0x46]);
@@ -686,7 +685,7 @@ describe("WaffleClient", () => {
     const payout = await client.getPayout("payout-1");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/payouts/payout-1");
+    expect(url).toBe("https://api.getwaffle.id/v1/payouts/payout-1");
     expect(init.method).toBe("GET");
     expect(payout).toEqual({
       id: "payout-1",
@@ -778,7 +777,7 @@ describe("WaffleClient", () => {
     const bytes = await client.getPayoutReceipt("payout-1");
 
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/payouts/payout-1/receipt.pdf");
+    expect(url).toBe("https://api.getwaffle.id/v1/payouts/payout-1/receipt.pdf");
     expect(Array.from(bytes)).toEqual([0x25, 0x50, 0x44, 0x46]);
   });
 
@@ -796,7 +795,7 @@ describe("WaffleClient", () => {
     const who = await client.whoami();
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8080/v1/whoami");
+    expect(url).toBe("https://api.getwaffle.id/v1/whoami");
     expect(init.method).toBe("GET");
     expect(who).toEqual({
       merchantId: "merchant-1",

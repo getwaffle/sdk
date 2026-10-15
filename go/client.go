@@ -1,5 +1,4 @@
-// Package waffle is a Go client SDK for the Waffle merchant API
-// (the ":8080" listener in the Waffle backend). It is deliberately its
+// Package waffle is a Go client SDK for the Waffle merchant API. It is deliberately its
 // own Go module (see go.mod: module github.com/getwaffle/sdk/go)
 // rather than a subpackage of the backend monorepo module
 // (github.com/very-good-labs/waffle), so that merchants can
@@ -29,8 +28,7 @@ import (
 )
 
 // DefaultBaseURL is the default merchant API base URL — Waffle's
-// production API. Point WithBaseURL at http://localhost:8080 for local
-// dev against docker-compose.yml instead.
+// production API.
 const DefaultBaseURL = "https://api.getwaffle.id"
 
 // Client is a Waffle merchant API client. Construct with NewClient.
@@ -48,9 +46,7 @@ type Option func(*Client)
 
 // WithBaseURL overrides the merchant API base URL. Default is
 // DefaultBaseURL (Waffle's production API, "https://api.getwaffle.id").
-// Point this at http://localhost:8080 for local dev against
-// docker-compose.yml instead. The value must not have a trailing slash
-// requirement — trailing slashes are trimmed automatically.
+// A trailing slash is trimmed automatically.
 func WithBaseURL(u string) Option {
 	return func(c *Client) {
 		for len(u) > 0 && u[len(u)-1] == '/' {

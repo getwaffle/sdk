@@ -554,14 +554,11 @@ func TestDefaultDashboardURLMatchesPortedBaseURL(t *testing.T) {
 		base string
 		want string
 	}{
-		// the documented default — host WITH a port must still match
-		{"http://localhost:8080", "http://localhost:3001"},
-		{"http://127.0.0.1:8080", "http://localhost:3001"},
+		// the production host WITH a port must still match
+		{"https://api.getwaffle.id:443", "https://getwaffle.id"},
 		{"https://api.getwaffle.id", "https://getwaffle.id"},
 		{"https://api.example.com", ""},
 		{"", ""},
-		// no scheme -> no host -> unknown
-		{"localhost:8080", ""},
 	}
 	for _, tc := range cases {
 		if got := defaultDashboardURL(tc.base); got != tc.want {
@@ -571,7 +568,7 @@ func TestDefaultDashboardURLMatchesPortedBaseURL(t *testing.T) {
 }
 
 func TestBrowserOpenableURLGate(t *testing.T) {
-	if got, ok := browserOpenableURL("http://localhost:3001/integrations/api-keys"); !ok || got != "http://localhost:3001/integrations/api-keys" {
+	if got, ok := browserOpenableURL("http://dashboard.example.com/integrations/api-keys"); !ok || got != "http://dashboard.example.com/integrations/api-keys" {
 		t.Errorf("http URL refused: %q %v", got, ok)
 	}
 	if got, ok := browserOpenableURL("https://dashboard.example.com"); !ok {

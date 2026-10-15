@@ -1,8 +1,7 @@
 # @getwaffle/mcp
 
 An [MCP](https://modelcontextprotocol.io) server that exposes the
-Waffle **merchant API** (the `:8080` listener; see
-`docs/api-contract.md` in the main repo) as tools an AI coding agent can
+Waffle **merchant API** as tools an AI coding agent can
 call directly — create a test charge, check a withdrawable balance,
 withdraw to an already-registered bank account, preview a fee — the
 same surface [`@getwaffle/sdk`](../typescript) wraps for application code,
@@ -16,9 +15,7 @@ be enough on its own to redirect where a merchant's payouts go.
 
 It speaks **stdio**: an MCP host (Claude Code, Cursor, VS Code Copilot,
 ...) launches it as a local child process per the [Model Context
-Protocol](https://modelcontextprotocol.io) specification. It is not a
-`docker-compose.yml` service — nothing else in the stack talks to it over
-the network.
+Protocol](https://modelcontextprotocol.io) specification. Nothing else talks to it over the network.
 
 ## Install and register with a host
 
@@ -54,7 +51,7 @@ the `command`/`args`/`env` shape is otherwise identical.)
 | Env var | Required | Default | Notes |
 | --- | --- | --- | --- |
 | `WAFFLE_API_KEY` | yes | — | Sent as `Authorization: Bearer <key>` on every request. The key's mode (`live` vs `sandbox`) is fixed **server-side** at issuance — a sandbox key can never move real money no matter what a tool call asks for. Get one from the merchant dashboard's Integrations page, or `POST /v1/merchants/register` for a fresh sandbox key. |
-| `WAFFLE_BASE_URL` | no | `https://api.getwaffle.id` | Set to `http://localhost:8080` for local dev against `docker-compose.yml`. |
+| `WAFFLE_BASE_URL` | no | `https://api.getwaffle.id` | Merchant API base URL. |
 
 The process exits immediately with a one-line stderr message if
 `WAFFLE_API_KEY` is unset — a host sees a failed launch, not a hang.
