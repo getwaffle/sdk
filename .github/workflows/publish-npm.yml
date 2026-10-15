@@ -12,6 +12,9 @@ on:
     paths:
       - "typescript/**"
       - "mcp/**"
+      # Editing this workflow re-runs it; publishing is a no-op for any
+      # package whose version is already on npm.
+      - ".github/workflows/publish-npm.yml"
 
 jobs:
   changes:
@@ -27,8 +30,10 @@ jobs:
           filters: |
             typescript:
               - 'typescript/**'
+              - '.github/workflows/publish-npm.yml'
             mcp:
               - 'mcp/**'
+              - '.github/workflows/publish-npm.yml'
 
   publish:
     needs: changes
