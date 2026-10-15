@@ -61,23 +61,17 @@ func readLine(prompt string, hidden bool) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-// defaultDashboardURL guesses the merchant dashboard base URL for the
-// two topologies this CLI ships defaults for: Waffle's production API
-// (api.getwaffle.id -> the production dashboard at getwaffle.id) and
-// local dev (:8080 -> the dashboard dev server on :3001). Any other
+// defaultDashboardURL guesses the merchant dashboard base URL for
+// Waffle's production API (api.getwaffle.id -> getwaffle.id). Any other
 // deployment sets dashboard_url via "waffle configure --dashboard-url".
 // Hostname() (not the raw authority string) is matched so a port on the
-// base URL — e.g. the local-dev default http://localhost:8080 — still
-// resolves to the local dashboard.
+// base URL still resolves.
 func defaultDashboardURL(baseURL string) string {
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Hostname() == "" {
 		return ""
 	}
-	switch u.Hostname() {
-	case "localhost", "127.0.0.1", "::1":
-		return "http://localhost:3001"
-	case "api.getwaffle.id":
+	if u.Hostname() == "api.getwaffle.id" {
 		return "https://getwaffle.id"
 	}
 	return ""

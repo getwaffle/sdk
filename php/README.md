@@ -1,6 +1,6 @@
 # waffle/sdk (PHP)
 
-PHP SDK for the Waffle merchant API (`:8080` by default). Requires
+PHP SDK for the Waffle merchant API. Requires
 PHP 8.1+ and the `curl`/`json` extensions (both bundled with virtually
 every PHP install). No heavy HTTP framework dependency — requests go
 through PHP's built-in curl extension via a small injectable `Transport`
@@ -30,9 +30,7 @@ use Waffle\Client;
 
 $client = new Client(
     apiKey: getenv('WAFFLE_API_KEY'),
-    // Defaults to https://api.getwaffle.id (production). Pass
-    // 'http://localhost:8080' for local dev against docker-compose.yml
-    // instead.
+    // Uses https://api.getwaffle.id (production) by default.
 );
 ```
 

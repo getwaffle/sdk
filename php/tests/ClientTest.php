@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 final class ClientTest extends TestCase
 {
     private const API_KEY = 'sk_test_123';
-    private const BASE_URL = 'http://localhost:8080';
+    private const BASE_URL = 'https://api.getwaffle.id';
 
     public function testConstructorRejectsEmptyApiKey(): void
     {

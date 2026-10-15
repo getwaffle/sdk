@@ -1,6 +1,6 @@
 {
     "name": "waffle/sdk",
-    "description": "PHP SDK for the Waffle merchant API (:8080)",
+    "description": "PHP SDK for the Waffle merchant API",
     "type": "library",
     "license": "MIT",
     "homepage": "https://getwaffle.id",

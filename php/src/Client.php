@@ -25,7 +25,7 @@ use Waffle\Http\Transport;
 use Waffle\Http\TransportResponse;
 
 /**
- * Client for the Waffle merchant API (`:8080` by default).
+ * Client for the Waffle merchant API.
  *
  * The wire format is snake_case JSON; this SDK exposes camelCase
  * properties on every DTO and converts to/from snake_case internally —
@@ -49,9 +49,7 @@ use Waffle\Http\TransportResponse;
 final class Client
 {
     /**
-     * Default merchant API base URL — Waffle's production API. Pass
-     * 'http://localhost:8080' as the constructor's `$baseUrl` argument
-     * for local dev against docker-compose.yml instead.
+     * Default merchant API base URL — Waffle's production API.
      */
     public const DEFAULT_BASE_URL = 'https://api.getwaffle.id';
 

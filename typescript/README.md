@@ -25,9 +25,7 @@ import { WaffleClient, generateIdempotencyKey } from "@getwaffle/sdk";
 
 const client = new WaffleClient({
   apiKey: process.env.WAFFLE_API_KEY!,
-  // Defaults to https://api.getwaffle.id (production). Pass
-  // "http://localhost:8080" for local dev against docker-compose.yml
-  // instead.
+  // Uses https://api.getwaffle.id (production) by default.
 });
 ```
 

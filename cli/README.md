@@ -1,8 +1,6 @@
 # waffle CLI
 
-A developer CLI for the Waffle **merchant API** (the `:8080`
-listener; see `docs/api-contract.md` in the main repo for the frozen
-contract). Standalone Go module (`github.com/getwaffle/sdk/cli`),
+A developer CLI for the Waffle **merchant API**. Standalone Go module (`github.com/getwaffle/sdk/cli`),
 sibling to `sdk/go`, `sdk/typescript`, `sdk/php`, and `sdk/mcp`. Every
 money-moving call goes through `waffle-go` — the CLI is a cobra
 front end over it plus a small private client for the dashboard-session
@@ -62,7 +60,7 @@ money-moving surface accepts. The CLI keeps them strictly separate:
 
 Precedence for the base URL: `--base-url` flag > `WAFFLE_BASE_URL`
 env > stored profile value > `https://api.getwaffle.id` (the SDK
-default, production — pass `http://localhost:8080` for local dev).
+default, production).
 
 ## Scopes and presets
 
@@ -178,7 +176,7 @@ It exits non-zero with the failure reason when verification fails.
 - No browser device-pairing flow: that would need a new
   unauthenticated credential-minting endpoint on the backend. `login`
   plus `keys create` covers the same path with zero new attack surface.
-- No admin-API coverage (`:8081`), no live-key minting (admin-only by
+- No admin-API coverage, no live-key minting (admin-only by
   design), no KYC submission / webhook registration / fee-rule
   management — those stay dashboard surfaces.
 
@@ -212,5 +210,4 @@ The `replace github.com/getwaffle/sdk/go => ../go` directive
 in `go.mod` is for local development against the sibling SDK; a real
 release pins a version. Tests are `httptest`-backed — including the
 cross-contamination guard that a session token is never sent where an
-API key is expected, and vice versa. An end-to-end transcript against
-the full local stack (`make start && make seed`) is in `e2e-proof.md`.
+API key is expected, and vice versa.
