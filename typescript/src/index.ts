@@ -30,3 +30,14 @@ export type {
   Scope,
   WhoAmI,
 } from "./types.js";
+export {
+  verifyWebhook,
+  WebhookVerificationError,
+  DEFAULT_WEBHOOK_TOLERANCE_SECONDS,
+} from "./webhook.js";
+export type {
+  WebhookEvent,
+  WebhookErrorReason,
+  WebhookHeaders,
+  VerifyWebhookOptions,
+} from "./webhook.js";

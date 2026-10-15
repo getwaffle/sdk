@@ -92,6 +92,7 @@ WAFFLE_API_KEY environment variable > the value stored by
 		newBankAccountsCmd(),
 		newPayoutsCmd(),
 		newHealthzCmd(),
+		newWebhooksCmd(),
 	)
 	return root
 }

@@ -122,6 +122,47 @@ try {
 }
 ```
 
+## Verifying webhooks
+
+`verifyWebhook` authenticates a delivery and returns the typed event. It
+uses only `crypto.subtle`, so it runs on Node, edge runtimes, Deno and
+Bun. Pass the **raw** body (read it as text before any `JSON.parse`; a
+re-serialised body will not verify):
+
+```ts
+import { verifyWebhook, WebhookVerificationError } from "@waffle/sdk";
+
+// Express: use express.raw({ type: "application/json" }) on this route.
+app.post("/webhooks/waffle", express.raw({ type: "application/json" }), async (req, res) => {
+  try {
+    const event = await verifyWebhook(req.body, req.headers, process.env.WAFFLE_WEBHOOK_SECRET!);
+    // event.deliveryId (X-Waffle-Delivery) is stable across retries: dedupe on it.
+    if (event.event === "charge.paid") await fulfil(event.chargeId!, event.amount!, event.currency!);
+    res.sendStatus(200);
+  } catch (err) {
+    if (err instanceof WebhookVerificationError) {
+      // err.reason: missing_signature | malformed_header | timestamp_out_of_tolerance
+      //           | signature_mismatch | invalid_json
+      return res.sendStatus(400);
+    }
+    throw err;
+  }
+});
+
+// Fetch-style runtimes (Workers, Next.js route handlers):
+//   const event = await verifyWebhook(await request.text(), request.headers, secret);
+```
+
+`X-Waffle-Signature-V2` (`t=<unix>,v1=<hex>`, HMAC-SHA256 over
+`"<t>.<body>"`) is verified in constant time with a 300 s tolerance in
+both directions. The legacy `X-Waffle-Signature` header is accepted
+**only when V2 is absent** and has **no replay protection**; pass
+`{ allowLegacy: false }` to refuse it. Other options:
+`{ toleranceSeconds, now }` (`now` returns unix seconds). `event.raw`
+holds the full decoded snake_case payload. Respond 2xx only after the
+event is durably recorded; anything else is retried with the same
+delivery id.
+
 ## Idempotency keys
 
 `createCharge` and `createPayout` take an optional `Idempotency-Key` as
