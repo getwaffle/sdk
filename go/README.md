@@ -130,6 +130,47 @@ there is no SDK method to register or change a bank account (see "Bank
 accounts" below); this is a deliberate part of the credential model, not
 a gap.
 
+## Verifying webhooks
+
+Waffle signs every webhook delivery. `VerifyWebhook` authenticates one
+and returns the typed event; read the **raw** request body before any
+JSON parsing (a re-serialised body will not verify).
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	ev, err := waffle.VerifyWebhook(body, r.Header, os.Getenv("WAFFLE_WEBHOOK_SECRET"))
+	if err != nil {
+		var we *waffle.WebhookError
+		if errors.As(err, &we) {
+			log.Printf("webhook rejected: %s", we.Reason) // missing_signature | malformed_header | timestamp_out_of_tolerance | signature_mismatch | invalid_json
+		}
+		http.Error(w, "invalid signature", http.StatusBadRequest)
+		return
+	}
+	// ev.DeliveryID (X-Waffle-Delivery) is stable across retries: dedupe on it.
+	switch ev.Event {
+	case "charge.paid":
+		fulfil(ev.ChargeID, ev.Amount, ev.Currency) // Amount is int64 minor units
+	}
+	w.WriteHeader(http.StatusOK)
+}
+```
+
+`X-Waffle-Signature-V2` (`t=<unix>,v1=<hex>`, HMAC-SHA256 over
+`"<t>.<body>"`) is verified with a constant-time compare and a 300 s
+tolerance in both directions. The legacy `X-Waffle-Signature` header is
+accepted **only when V2 is absent** and has **no replay protection**;
+pass `waffle.WithWebhookAllowLegacy(false)` to refuse it.
+`WithWebhookTolerance(d)` and `WithWebhookClock(fn)` adjust the window
+and the clock. `WebhookEvent.Raw` holds the full decoded payload
+(numbers as `json.Number`). Respond 2xx only after the event is durably
+recorded; anything else is retried with the same delivery id.
+
 ## Idempotency keys
 
 `CreateCharge` and `CreatePayout` require an `Idempotency-Key` per the
