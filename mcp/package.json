@@ -1,6 +1,6 @@
 {
   "name": "@getwaffle/mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server exposing the Waffle merchant API as tools for AI coding agents (Claude Code, Cursor, VS Code Copilot, ...)",
   "type": "module",
   "bin": {
