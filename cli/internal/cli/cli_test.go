@@ -590,3 +590,59 @@ func TestBrowserOpenableURLGate(t *testing.T) {
 		}
 	}
 }
+
+// Vectors computed independently with openssl (see go/webhook_test.go).
+const (
+	whCLISecret = "whsec_test_secret"
+	whCLIBody   = `{"event":"charge.paid","event_id":"d1b0c3a2-0000-4000-8000-000000000001","created_at":"2026-01-02T03:04:05Z","charge_id":"ch_123","status":"paid","amount":100000,"currency":"IDR","mode":"live"}`
+	whCLISigV2  = "t=1767323045,v1=2018c5555c6d3aba3f16464677fe2628fa66e5cf786fcbd31d5078c9d6a864dc"
+)
+
+func TestWebhooksVerify(t *testing.T) {
+	withConfig(t)
+	t.Setenv("WAFFLE_WEBHOOK_SECRET", whCLISecret)
+	body := t.TempDir() + "/body.json"
+	if err := os.WriteFile(body, []byte(whCLIBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"webhooks", "verify", "--body-file", body,
+		"--header", "x-waffle-signature-v2:   " + whCLISigV2, "--header", "X-Waffle-Delivery: dlv_1"}
+
+	out, err := runCLI(t, append(base, "--at", "1767323045")...)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	for _, want := range []string{"Signature valid", "charge.paid", "ch_123", "dlv_1", "100000 IDR"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q: %q", want, out)
+		}
+	}
+
+	out, err = runCLI(t, append(base, "--at", "1767323045", "--json")...)
+	if err != nil || !strings.Contains(out, `"verified": true`) {
+		t.Fatalf("json: out=%q err=%v", out, err)
+	}
+
+	// Stale against the real clock: the fixed vector is long past 300s.
+	_, err = runCLI(t, base...)
+	var we *waffle.WebhookError
+	if !errors.As(err, &we) || we.Reason != waffle.WebhookTimestampOutOfTolerance {
+		t.Fatalf("stale: err=%v, want timestamp_out_of_tolerance", err)
+	}
+
+	// Secret never travels as a flag; wrong secret is a mismatch, stdin body works.
+	t.Setenv("WAFFLE_WEBHOOK_SECRET", "whsec_other_secret")
+	setStdin(strings.NewReader(whCLIBody))
+	args := append([]string{}, base...)
+	args[3] = "-"
+	_, err = runCLI(t, append(args, "--at", "1767323045")...)
+	if !errors.As(err, &we) || we.Reason != waffle.WebhookSignatureMismatch {
+		t.Fatalf("wrong secret: err=%v, want signature_mismatch", err)
+	}
+	setStdin(os.Stdin)
+
+	t.Setenv("WAFFLE_WEBHOOK_SECRET", "")
+	if _, err = runCLI(t, base...); err == nil || !strings.Contains(err.Error(), "no signing secret") {
+		t.Fatalf("missing secret: err=%v", err)
+	}
+}
