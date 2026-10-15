@@ -26,7 +26,9 @@ the backend repo is the ground-truth contract these SDKs implement).
 Every SDK and the MCP server cover **transactions only** (charges,
 payouts, balance, banks) and respect the calling API key's scopes,
 never KYC, documents, team, settings, or account administration — that
-stays dashboard-only by design.
+stays dashboard-only by design. The Go, TypeScript and PHP SDKs (and the
+CLI's `webhooks verify`) also ship a webhook signature verifier for
+receiving Waffle's outbound events — see "Verifying webhooks" in each README.
 
 ## Releasing
 

@@ -151,8 +151,27 @@ waffle payouts receipt <payout-id> [--output file.pdf]   # scope payouts:read; 4
 
 waffle healthz                                         # no auth
 
+waffle webhooks verify --body-file f --header 'Name: v' ...  # offline signature check, secret from $WAFFLE_WEBHOOK_SECRET
+
 Global flags: --api-key, --base-url, --json, --profile <name>
 ```
+
+### Debugging webhook signatures
+
+`waffle webhooks verify` runs the SDK's `VerifyWebhook` offline against a
+captured delivery (no API credential, no network). The secret comes from
+`WAFFLE_WEBHOOK_SECRET` or `--secret-file`, never a flag:
+
+```sh
+export WAFFLE_WEBHOOK_SECRET=whsec_...
+waffle webhooks verify --body-file body.json \
+  --header 'X-Waffle-Signature-V2: t=1767323045,v1=2018c5...' \
+  --header 'X-Waffle-Delivery: d1b0c3a2-...' \
+  --at 1767323045          # verify the timestamp as of when it was received
+```
+
+Options: `--body-file -` (stdin), `--tolerance 300s`, `--no-legacy`, `--json`.
+It exits non-zero with the failure reason when verification fails.
 
 ### What the CLI does *not* do
 

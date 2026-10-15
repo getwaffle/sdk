@@ -135,6 +135,46 @@ try {
 }
 ```
 
+## Verifying webhooks
+
+`Waffle\Webhook::verify()` authenticates a delivery and returns a typed
+`WebhookEvent`. Pass the **raw** body (`php://input`; a re-encoded body
+will not verify):
+
+```php
+use Waffle\Exception\WebhookVerificationException;
+use Waffle\Webhook;
+
+try {
+    $event = Webhook::verify(
+        file_get_contents('php://input'),
+        getallheaders(),
+        getenv('WAFFLE_WEBHOOK_SECRET'),
+    );
+} catch (WebhookVerificationException $e) {
+    // $e->reason: WebhookErrorReason::MissingSignature | MalformedHeader
+    //   | TimestampOutOfTolerance | SignatureMismatch | InvalidJson
+    http_response_code(400);
+    exit;
+}
+
+// $event->deliveryId (X-Waffle-Delivery) is stable across retries: dedupe on it.
+if ($event->event === 'charge.paid') {
+    fulfil($event->chargeId, $event->amount, $event->currency); // $amount is int minor units
+}
+http_response_code(200);
+```
+
+`X-Waffle-Signature-V2` (`t=<unix>,v1=<hex>`, HMAC-SHA256 over
+`"<t>.<body>"`) is verified with `hash_equals` and a 300 s tolerance in
+both directions. The legacy `X-Waffle-Signature` header is accepted
+**only when V2 is absent** and has **no replay protection**; pass
+`allowLegacy: false` to refuse it. Other named arguments:
+`toleranceSeconds`, `now` (a callable returning unix seconds).
+`$event->raw` holds the full decoded snake_case payload. Respond 2xx
+only after the event is durably recorded; anything else is retried with
+the same delivery id.
+
 ## Idempotency keys
 
 `createCharge` and `createPayout` require an explicit `Idempotency-Key`
