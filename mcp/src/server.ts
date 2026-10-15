@@ -11,7 +11,7 @@ import {
   type Payout,
   type Scope,
   type WhoAmI,
-} from "@waffle/sdk";
+} from "@getwaffle/sdk";
 import * as z from "zod/v4";
 import { formatMoney } from "./format.js";
 
@@ -165,7 +165,7 @@ function payoutSummaryLines(payout: Payout): string[] {
 
 /**
  * Builds an MCP server exposing the Waffle **merchant API** (`:8080`,
- * API-key authenticated) as tools — the same surface `@waffle/sdk`
+ * API-key authenticated) as tools — the same surface `@getwaffle/sdk`
  * wraps, not the admin API or the dashboard-session-authenticated
  * `/v1/merchants/me/*` routes. Every write tool that requires an
  * `Idempotency-Key` (create_charge, create_payout) mints its own per

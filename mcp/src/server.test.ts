@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
-import type { Scope } from "@waffle/sdk";
+import type { Scope } from "@getwaffle/sdk";
 import { createServer } from "./server.js";
 
 function jsonResponse(status: number, body: unknown): Response {

@@ -1,5 +1,5 @@
 {
-  "name": "@waffle/mcp",
+  "name": "@getwaffle/mcp",
   "version": "0.1.0",
   "description": "MCP server exposing the Waffle merchant API as tools for AI coding agents (Claude Code, Cursor, VS Code Copilot, ...)",
   "type": "module",
@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
-    "@waffle/sdk": "file:../typescript",
+    "@getwaffle/sdk": "file:../typescript",
     "zod": "^4.6.5"
   },
   "devDependencies": {

@@ -1,4 +1,4 @@
-# @waffle/sdk
+# @getwaffle/sdk
 
 TypeScript SDK for the Waffle merchant API. Works in Node (>=18),
 browsers, and edge runtimes — it uses the global `fetch`, not a
@@ -7,7 +7,7 @@ Node-only HTTP client.
 ## Install
 
 ```bash
-npm install @waffle/sdk
+npm install @getwaffle/sdk
 ```
 
 ## Field naming
@@ -21,7 +21,7 @@ currency's minor unit; never treat an amount field as a float.
 ## Quick start
 
 ```ts
-import { WaffleClient, generateIdempotencyKey } from "@waffle/sdk";
+import { WaffleClient, generateIdempotencyKey } from "@getwaffle/sdk";
 
 const client = new WaffleClient({
   apiKey: process.env.WAFFLE_API_KEY!,
@@ -96,7 +96,7 @@ scope is thrown as the more specific `WafflePermissionError` subclass
 `scope` parsed out of the message:
 
 ```ts
-import { WaffleError, WafflePermissionError } from "@waffle/sdk";
+import { WaffleError, WafflePermissionError } from "@getwaffle/sdk";
 
 try {
   await client.createCharge({ amount: 100000, currency: "IDR" });
@@ -130,7 +130,7 @@ Bun. Pass the **raw** body (read it as text before any `JSON.parse`; a
 re-serialised body will not verify):
 
 ```ts
-import { verifyWebhook, WebhookVerificationError } from "@waffle/sdk";
+import { verifyWebhook, WebhookVerificationError } from "@getwaffle/sdk";
 
 // Express: use express.raw({ type: "application/json" }) on this route.
 app.post("/webhooks/waffle", express.raw({ type: "application/json" }), async (req, res) => {
@@ -175,7 +175,7 @@ request so a retry after a crash reuses it). Use the exported
 that case:
 
 ```ts
-import { generateIdempotencyKey } from "@waffle/sdk";
+import { generateIdempotencyKey } from "@getwaffle/sdk";
 
 const key = generateIdempotencyKey();
 const charge = await client.createCharge({ amount: 100000, currency: "IDR" }, key);
