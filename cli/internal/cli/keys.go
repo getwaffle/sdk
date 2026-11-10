@@ -6,8 +6,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-
-	"github.com/getwaffle/sdk/cli/internal/session"
 )
 
 func newKeysCmd() *cobra.Command {
@@ -86,7 +84,11 @@ func newKeysListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			keys, err := session.New(r.apiBase(), token).ListAPIKeys(cmd.Context())
+			sc, err := r.sessionClient(token)
+			if err != nil {
+				return err
+			}
+			keys, err := sc.ListAPIKeys(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -139,7 +141,11 @@ skip storing it (e.g. when minting for another machine).`,
 			if err != nil {
 				return err
 			}
-			key, err := session.New(r.apiBase(), token).CreateAPIKey(cmd.Context(), name)
+			sc, err := r.sessionClient(token)
+			if err != nil {
+				return err
+			}
+			key, err := sc.CreateAPIKey(cmd.Context(), name)
 			if err != nil {
 				return err
 			}
@@ -185,7 +191,11 @@ func newKeysRevokeCmd() *cobra.Command {
 				return err
 			}
 			id := strings.TrimSpace(args[0])
-			if err := session.New(r.apiBase(), token).RevokeAPIKey(cmd.Context(), id); err != nil {
+			sc, err := r.sessionClient(token)
+			if err != nil {
+				return err
+			}
+			if err := sc.RevokeAPIKey(cmd.Context(), id); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stdout, "Key %s revoked.\n", id)

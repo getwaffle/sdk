@@ -14,7 +14,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/getwaffle/sdk/cli/internal/config"
-	"github.com/getwaffle/sdk/cli/internal/session"
 )
 
 // stdin/stderr indirection so tests can drive the prompts. stdinReader
@@ -153,6 +152,9 @@ create") and, when the dashboard location is known, its API-keys page.`,
 				return err
 			}
 			if g.baseURLFlag != "" {
+				if err := validateBaseURL(strings.TrimRight(g.baseURLFlag, "/")); err != nil {
+					return err
+				}
 				r.prof.BaseURL = strings.TrimRight(g.baseURLFlag, "/")
 			}
 
@@ -186,7 +188,10 @@ create") and, when the dashboard location is known, its API-keys page.`,
 				return fmt.Errorf("password is required")
 			}
 
-			sc := session.New(r.apiBase(), "")
+			sc, err := r.sessionClient("")
+			if err != nil {
+				return err
+			}
 			token, err := sc.Login(cmd.Context(), email, password)
 			if err != nil {
 				return err
@@ -262,7 +267,10 @@ func newWhoamiCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sc := session.New(r.apiBase(), token)
+			sc, err := r.sessionClient(token)
+			if err != nil {
+				return err
+			}
 			prof, err := sc.GetProfile(cmd.Context())
 			if err != nil {
 				return err
@@ -314,6 +322,9 @@ commands remains flag > WAFFLE_API_KEY > this stored value.`,
 				r.prof.APIKey = apiKey
 			}
 			if g.baseURLFlag != "" {
+				if err := validateBaseURL(strings.TrimRight(g.baseURLFlag, "/")); err != nil {
+					return err
+				}
 				r.prof.BaseURL = strings.TrimRight(g.baseURLFlag, "/")
 			}
 			if dashboardURL != "" {

@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	waffle "github.com/getwaffle/sdk/go"
 )
@@ -40,10 +42,23 @@ func WithHTTPClient(hc *http.Client) Option {
 	return func(c *Client) { c.httpClient = hc }
 }
 
+// NewHTTPClient returns the client used for all CLI API traffic: a
+// bounded timeout and no redirect following. The API never redirects,
+// and following one could forward credentials to another host or
+// downgrade https to http.
+func NewHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 // New builds a session client. token is the dashboard session from
 // Login; empty is valid only for the Login call itself.
 func New(baseURL, token string, opts ...Option) *Client {
-	c := &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, httpClient: http.DefaultClient}
+	c := &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, httpClient: NewHTTPClient()}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -77,7 +92,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 		return fmt.Errorf("session: performing request: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return fmt.Errorf("session: reading response body: %w", err)
 	}
@@ -189,5 +204,5 @@ func (c *Client) CreateAPIKey(ctx context.Context, name string) (*IssuedKey, err
 // RevokeAPIKey revokes one of the caller's own keys. Revoking an
 // unknown or already-revoked key is a 404.
 func (c *Client) RevokeAPIKey(ctx context.Context, id string) error {
-	return c.doJSON(ctx, http.MethodPost, "/v1/merchants/me/api-keys/"+id+"/revoke", nil, nil)
+	return c.doJSON(ctx, http.MethodPost, "/v1/merchants/me/api-keys/"+url.PathEscape(id)+"/revoke", nil, nil)
 }

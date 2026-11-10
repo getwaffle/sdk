@@ -17,6 +17,21 @@ func emitJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
+// sanitize replaces control characters (ESC, CSI, BEL, CR, etc.) in
+// server-supplied text with U+FFFD so a hostile or compromised response
+// cannot inject terminal escape sequences. Newline and tab are kept.
+func sanitize(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
+			return '\uFFFD'
+		}
+		return r
+	}, s)
+}
+
 // kv is one row of human-oriented key/value output.
 type kv struct{ k, v string }
 
@@ -41,7 +56,7 @@ func printKV(w io.Writer, title string, rows []kv) {
 		if r.v == "" {
 			continue
 		}
-		fmt.Fprintf(w, "  %-*s  %s\n", width, r.k+":", r.v)
+		fmt.Fprintf(w, "  %-*s  %s\n", width, r.k+":", sanitize(r.v))
 	}
 }
 
@@ -50,7 +65,11 @@ func printTable(w io.Writer, header []string, rows [][]string) {
 	tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, strings.Join(header, "\t"))
 	for _, r := range rows {
-		fmt.Fprintln(tw, strings.Join(r, "\t"))
+		cells := make([]string, len(r))
+		for i, c := range r {
+			cells[i] = strings.ReplaceAll(sanitize(c), "\t", " ")
+		}
+		fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	tw.Flush()
 }

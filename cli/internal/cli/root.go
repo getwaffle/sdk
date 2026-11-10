@@ -10,13 +10,16 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
 	waffle "github.com/getwaffle/sdk/go"
+	"github.com/spf13/cobra"
 
 	"github.com/getwaffle/sdk/cli/internal/config"
+	"github.com/getwaffle/sdk/cli/internal/session"
 )
 
 // globals holds the persistent flags every command reads.
@@ -124,6 +127,58 @@ func (r *resolved) apiBase() string {
 	return waffle.DefaultBaseURL
 }
 
+// base returns the API base URL after validating it is safe to send
+// credentials to: https, or plain http only for a loopback host (local
+// dev/tests). Anything else (http to a remote host, userinfo, other
+// schemes) is refused so a stray WAFFLE_BASE_URL or config edit cannot
+// downgrade to cleartext or smuggle credentials elsewhere silently.
+func (r *resolved) base() (string, error) {
+	b := r.apiBase()
+	if err := validateBaseURL(b); err != nil {
+		return "", err
+	}
+	return b, nil
+}
+
+func validateBaseURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("invalid base URL %q", raw)
+	}
+	if u.User != nil {
+		return fmt.Errorf("invalid base URL %q: must not contain credentials", raw)
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		switch u.Hostname() {
+		case "localhost", "127.0.0.1", "::1":
+			return nil
+		}
+	}
+	return fmt.Errorf("refusing base URL %q: must be https (http is only allowed for localhost)", raw)
+}
+
+// newHTTPClient is the client for all API calls: bounded timeout and no
+// redirect following (the API never redirects; following one would let a
+// compromised or misconfigured endpoint steer an Authorization header).
+func newHTTPClient() *http.Client { return session.NewHTTPClient() }
+
+// moneyClientFor builds an SDK client with the safe HTTP client.
+func newSDKClient(key, base string) *waffle.Client {
+	return waffle.NewClient(key, waffle.WithBaseURL(base), waffle.WithHTTPClient(newHTTPClient()))
+}
+
+// sessionClient builds a session client for the validated base URL.
+func (r *resolved) sessionClient(token string) (*session.Client, error) {
+	b, err := r.base()
+	if err != nil {
+		return nil, err
+	}
+	return session.New(b, token), nil
+}
+
 // requireAPIKey applies the credential precedence: flag > env > stored
 // profile. Money-moving commands call this; the session surface must
 // never fall through to it.
@@ -159,9 +214,9 @@ func Execute() {
 	if err := newRootCmd().Execute(); err != nil {
 		var apiErr *waffle.APIError
 		if errors.As(err, &apiErr) {
-			fmt.Fprintf(os.Stderr, "error: HTTP %d: %s\n", apiErr.StatusCode, apiErr.Message)
+			fmt.Fprintf(os.Stderr, "error: HTTP %d: %s\n", apiErr.StatusCode, sanitize(apiErr.Message))
 		} else {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "error: %s\n", sanitize(err.Error()))
 		}
 		os.Exit(1)
 	}

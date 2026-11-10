@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -21,7 +22,11 @@ func (r *resolved) moneyClient() (*waffle.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return waffle.NewClient(key, waffle.WithBaseURL(r.apiBase())), nil
+	b, err := r.base()
+	if err != nil {
+		return nil, err
+	}
+	return newSDKClient(key, b), nil
 }
 
 func newBalanceCmd() *cobra.Command {
@@ -83,7 +88,11 @@ ordered by sort_order.`,
 			// rides along harmlessly.
 			c, keyErr := r.moneyClient()
 			if keyErr != nil {
-				c = waffle.NewClient("", waffle.WithBaseURL(r.apiBase()))
+				b, berr := r.base()
+				if berr != nil {
+					return berr
+				}
+				c = newSDKClient("", b)
 			}
 			banks, err := c.ListBanks(cmd.Context())
 			if err != nil {
@@ -466,9 +475,9 @@ to <charge-id>.pdf in the current directory when --output is omitted.`,
 			}
 			path := output
 			if path == "" {
-				path = args[0] + ".pdf"
+				path = filepath.Base(args[0]) + ".pdf"
 			}
-			if err := os.WriteFile(path, pdf, 0o644); err != nil {
+			if err := os.WriteFile(path, pdf, 0o600); err != nil {
 				return fmt.Errorf("writing %s: %w", path, err)
 			}
 			if g.jsonOut {
@@ -762,9 +771,9 @@ is omitted.`,
 			}
 			path := output
 			if path == "" {
-				path = args[0] + ".pdf"
+				path = filepath.Base(args[0]) + ".pdf"
 			}
-			if err := os.WriteFile(path, pdf, 0o644); err != nil {
+			if err := os.WriteFile(path, pdf, 0o600); err != nil {
 				return fmt.Errorf("writing %s: %w", path, err)
 			}
 			if g.jsonOut {
@@ -788,7 +797,11 @@ func newHealthzCmd() *cobra.Command {
 				return err
 			}
 			// Healthz takes no credential; construct without resolving a key.
-			c := waffle.NewClient("", waffle.WithBaseURL(r.apiBase()))
+			b, err := r.base()
+			if err != nil {
+				return err
+			}
+			c := newSDKClient("", b)
 			if err := c.Healthz(cmd.Context()); err != nil {
 				return err
 			}

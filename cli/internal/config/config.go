@@ -109,6 +109,10 @@ func (c *Config) Save() error {
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return fmt.Errorf("config: writing: %w", err)
 	}
+	// WriteFile does not tighten the mode of a pre-existing tmp file.
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		return fmt.Errorf("config: chmod: %w", err)
+	}
 	if err := os.Rename(tmp, p); err != nil {
 		return fmt.Errorf("config: replacing %s: %w", p, err)
 	}
