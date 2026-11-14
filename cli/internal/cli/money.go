@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,15 +22,93 @@ import (
 // the money-moving surface, where a dashboard session token is
 // meaningless (the contract forbids it from creating charges/payouts).
 func (r *resolved) moneyClient() (*waffle.Client, error) {
-	key, err := r.requireAPIKey()
+	b, src, err := r.baseChecked()
 	if err != nil {
 		return nil, err
 	}
-	b, err := r.base()
+	key, err := r.requireAPIKey(b, src)
 	if err != nil {
 		return nil, err
 	}
 	return newSDKClient(key, b), nil
+}
+
+// announceIdemKey prints the key to stderr BEFORE the request is sent,
+// so it is known even if the request times out or the process dies.
+func announceIdemKey(key string) {
+	fmt.Fprintf(stderr, "Idempotency-Key: %s (pass --idempotency-key %s to retry safely)\n", key, key)
+}
+
+// unknownOutcome rewrites transport-level failures (timeout, connection
+// reset, EOF) on a money-creating call: the server may or may not have
+// processed it, so say so and repeat the key. API errors (the server
+// answered) and local failures are returned unchanged.
+func unknownOutcome(err error, key string) error {
+	var apiErr *waffle.APIError
+	if err == nil || errors.As(err, &apiErr) {
+		return err
+	}
+	var netErr net.Error
+	var urlErr *url.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.As(err, &netErr) || errors.As(err, &urlErr) {
+		return fmt.Errorf("outcome UNKNOWN: the request may or may not have been processed by the server (%w). Do NOT create a new one: retry with --idempotency-key %s (Idempotency-Key: %s) to retry safely, or check the dashboard first", err, key, key)
+	}
+	return err
+}
+
+// maxReceiptBytes caps a downloaded receipt.
+const maxReceiptBytes = 16 << 20
+
+// writeReceipt writes data to path with mode 0600 without following a
+// pre-planted symlink and without clobbering an existing file unless
+// force is set. With force the file is replaced atomically via a temp
+// file + rename, which replaces a symlink itself instead of writing
+// through it.
+func writeReceipt(path string, data []byte, force bool) error {
+	if len(data) > maxReceiptBytes {
+		return fmt.Errorf("receipt is %d bytes, over the %d byte limit; not writing it", len(data), maxReceiptBytes)
+	}
+	if !force {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("refusing to overwrite existing %s (pass --force to replace it)", path)
+			}
+			return err
+		}
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			os.Remove(path)
+			return err
+		}
+		if err := f.Close(); err != nil {
+			os.Remove(path)
+			return err
+		}
+		return nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".waffle-receipt-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	fail := func(err error) error { tmp.Close(); os.Remove(name); return err }
+	if _, err := tmp.Write(data); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 func newBalanceCmd() *cobra.Command {
@@ -209,6 +291,7 @@ or one is generated for this invocation.`,
 			if idemKey == "" {
 				idemKey = waffle.GenerateIdempotencyKey()
 			}
+			announceIdemKey(idemKey)
 			charge, err := c.CreateCharge(cmd.Context(), waffle.CreateChargeParams{
 				Amount:                   amount,
 				Currency:                 currency,
@@ -222,7 +305,7 @@ or one is generated for this invocation.`,
 				Metadata:                 meta,
 			}, idemKey)
 			if err != nil {
-				return err
+				return unknownOutcome(err, idemKey)
 			}
 			if g.jsonOut {
 				return emitJSON(os.Stdout, charge)
@@ -452,6 +535,7 @@ func printChargeList(charges []*waffle.Charge, hasMore bool) error {
 
 func newChargesReceiptCmd() *cobra.Command {
 	var output string
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "receipt <charge-id>",
 		Short: "Download a charge's PDF receipt (GET /v1/charges/{id}/receipt.pdf)",
@@ -477,7 +561,7 @@ to <charge-id>.pdf in the current directory when --output is omitted.`,
 			if path == "" {
 				path = filepath.Base(args[0]) + ".pdf"
 			}
-			if err := os.WriteFile(path, pdf, 0o600); err != nil {
+			if err := writeReceipt(path, pdf, force); err != nil {
 				return fmt.Errorf("writing %s: %w", path, err)
 			}
 			if g.jsonOut {
@@ -488,6 +572,7 @@ to <charge-id>.pdf in the current directory when --output is omitted.`,
 		},
 	}
 	cmd.Flags().StringVar(&output, "output", "", "output file path (default: <charge-id>.pdf)")
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite the output file if it already exists")
 	return cmd
 }
 
@@ -593,13 +678,14 @@ automatically, no action needed.`,
 			if idemKey == "" {
 				idemKey = waffle.GenerateIdempotencyKey()
 			}
+			announceIdemKey(idemKey)
 			p, err := c.CreatePayout(cmd.Context(), waffle.CreatePayoutParams{
 				BankAccountID: bankAcctID,
 				Amount:        amount,
 				Currency:      currency,
 			}, idemKey)
 			if err != nil {
-				return err
+				return unknownOutcome(err, idemKey)
 			}
 			if g.jsonOut {
 				return emitJSON(os.Stdout, p)
@@ -747,6 +833,7 @@ func printPayoutList(payouts []*waffle.Payout, hasMore bool) error {
 
 func newPayoutsReceiptCmd() *cobra.Command {
 	var output string
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "receipt <payout-id>",
 		Short: "Download a payout's PDF receipt (GET /v1/payouts/{id}/receipt.pdf)",
@@ -773,7 +860,7 @@ is omitted.`,
 			if path == "" {
 				path = filepath.Base(args[0]) + ".pdf"
 			}
-			if err := os.WriteFile(path, pdf, 0o600); err != nil {
+			if err := writeReceipt(path, pdf, force); err != nil {
 				return fmt.Errorf("writing %s: %w", path, err)
 			}
 			if g.jsonOut {
@@ -784,6 +871,7 @@ is omitted.`,
 		},
 	}
 	cmd.Flags().StringVar(&output, "output", "", "output file path (default: <payout-id>.pdf)")
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite the output file if it already exists")
 	return cmd
 }
 

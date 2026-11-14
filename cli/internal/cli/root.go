@@ -10,6 +10,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +27,9 @@ import (
 type globals struct {
 	profileName string
 	apiKeyFlag  string
+	apiKeyStdin bool
+	stdinKey    string // cached key read from stdin (read once)
+	stdinRead   bool
 	baseURLFlag string
 	jsonOut     bool
 }
@@ -69,9 +73,15 @@ Two credentials, never interchangeable:
     "waffle keys create", or export WAFFLE_API_KEY.
   - a dashboard session token — manages your account: whoami, keys.
 
-Credentials resolve in precedence order: --api-key flag >
+Credentials resolve in precedence order: --api-key-stdin / --api-key >
 WAFFLE_API_KEY environment variable > the value stored by
-"waffle login"/"waffle configure" in the config file.`,
+"waffle login"/"waffle configure" in the config file. Prefer stdin, the
+environment, or the stored value: --api-key is visible in process
+listings and shell history.
+
+A stored API key is only ever sent to the default API host, a loopback
+host, or a base URL you pass with the --base-url flag — never to a host
+named only by the WAFFLE_BASE_URL environment variable.`,
 		Version:           Version,
 		SilenceUsage:      true,
 		SilenceErrors:     true,
@@ -79,7 +89,8 @@ WAFFLE_API_KEY environment variable > the value stored by
 	}
 	pf := root.PersistentFlags()
 	pf.StringVarP(&g.profileName, "profile", "p", "", "config profile to use (default \"default\")")
-	pf.StringVar(&g.apiKeyFlag, "api-key", "", "merchant API key (overrides WAFFLE_API_KEY and stored config)")
+	pf.StringVar(&g.apiKeyFlag, "api-key", "", "merchant API key (INSECURE: visible in ps and shell history; prefer --api-key-stdin or WAFFLE_API_KEY)")
+	pf.BoolVar(&g.apiKeyStdin, "api-key-stdin", false, "read the merchant API key from stdin (overrides WAFFLE_API_KEY and stored config)")
 	pf.StringVar(&g.baseURLFlag, "base-url", "", "merchant API base URL (overrides WAFFLE_BASE_URL and stored config)")
 	pf.BoolVar(&g.jsonOut, "json", false, "output raw JSON instead of human-readable text")
 
@@ -113,31 +124,53 @@ func (g *globals) load() (*resolved, error) {
 	return &resolved{cfg: cfg, name: name, prof: cfg.Profile(name)}, nil
 }
 
-// apiBase applies precedence: flag > env > stored profile > SDK default.
-func (r *resolved) apiBase() string {
+// baseSource says where the effective base URL came from.
+type baseSource int
+
+const (
+	srcDefault baseSource = iota
+	srcProfile
+	srcEnv
+	srcFlag
+)
+
+// apiBaseSrc applies precedence: flag > env > stored profile > SDK
+// default, and reports which one won.
+func (r *resolved) apiBaseSrc() (string, baseSource) {
 	if g.baseURLFlag != "" {
-		return strings.TrimRight(g.baseURLFlag, "/")
+		return strings.TrimRight(g.baseURLFlag, "/"), srcFlag
 	}
 	if v := os.Getenv(envBaseURL); v != "" {
-		return strings.TrimRight(v, "/")
+		return strings.TrimRight(v, "/"), srcEnv
 	}
 	if r.prof.BaseURL != "" {
-		return r.prof.BaseURL
+		return r.prof.BaseURL, srcProfile
 	}
-	return waffle.DefaultBaseURL
+	return waffle.DefaultBaseURL, srcDefault
+}
+
+func (r *resolved) apiBase() string {
+	b, _ := r.apiBaseSrc()
+	return b
 }
 
 // base returns the API base URL after validating it is safe to send
 // credentials to: https, or plain http only for a loopback host (local
-// dev/tests). Anything else (http to a remote host, userinfo, other
-// schemes) is refused so a stray WAFFLE_BASE_URL or config edit cannot
-// downgrade to cleartext or smuggle credentials elsewhere silently.
+// dev/tests). Anything else (http to a remote host, userinfo, paths,
+// queries, other schemes) is refused so a stray WAFFLE_BASE_URL or
+// config edit cannot downgrade to cleartext or smuggle credentials
+// elsewhere silently.
 func (r *resolved) base() (string, error) {
-	b := r.apiBase()
+	b, _, err := r.baseChecked()
+	return b, err
+}
+
+func (r *resolved) baseChecked() (string, baseSource, error) {
+	b, src := r.apiBaseSrc()
 	if err := validateBaseURL(b); err != nil {
-		return "", err
+		return "", src, err
 	}
-	return b, nil
+	return b, src, nil
 }
 
 func validateBaseURL(raw string) error {
@@ -148,16 +181,67 @@ func validateBaseURL(raw string) error {
 	if u.User != nil {
 		return fmt.Errorf("invalid base URL %q: must not contain credentials", raw)
 	}
+	if u.Opaque != "" || (u.Path != "" && u.Path != "/") {
+		return fmt.Errorf("invalid base URL %q: must not contain a path", raw)
+	}
+	if u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "?") {
+		return fmt.Errorf("invalid base URL %q: must not contain a query string", raw)
+	}
+	if u.Fragment != "" || strings.Contains(raw, "#") {
+		return fmt.Errorf("invalid base URL %q: must not contain a fragment", raw)
+	}
 	switch u.Scheme {
 	case "https":
 		return nil
 	case "http":
-		switch u.Hostname() {
-		case "localhost", "127.0.0.1", "::1":
+		if isLoopbackHost(u.Hostname()) {
 			return nil
 		}
 	}
 	return fmt.Errorf("refusing base URL %q: must be https (http is only allowed for localhost)", raw)
+}
+
+func isLoopbackHost(h string) bool {
+	switch strings.ToLower(h) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
+}
+
+// isDefaultAPIHost reports whether base is the production API origin.
+func isDefaultAPIHost(base string) bool {
+	d, err1 := url.Parse(waffle.DefaultBaseURL)
+	u, err2 := url.Parse(base)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return u.Scheme == "https" && strings.EqualFold(u.Hostname(), d.Hostname()) &&
+		(u.Port() == "" || u.Port() == "443")
+}
+
+// credsTrusted reports whether credentials stored in the config file
+// may be attached for this base URL. A base URL taken from the
+// environment (which a hostile repo's .envrc/.env/Makefile/CI can set)
+// is trusted only when it is the default API host or loopback; one
+// given with the --base-url flag, read from the stored profile, or the
+// default is trusted.
+func credsTrusted(base string, src baseSource) bool {
+	if src != srcEnv {
+		return true
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	return isDefaultAPIHost(base) || isLoopbackHost(u.Hostname())
+}
+
+func baseHost(base string) string {
+	if u, err := url.Parse(base); err == nil {
+		return u.Host
+	}
+	return base
 }
 
 // newHTTPClient is the client for all API calls: bounded timeout and no
@@ -172,28 +256,83 @@ func newSDKClient(key, base string) *waffle.Client {
 
 // sessionClient builds a session client for the validated base URL.
 func (r *resolved) sessionClient(token string) (*session.Client, error) {
-	b, err := r.base()
+	b, src, err := r.baseChecked()
 	if err != nil {
 		return nil, err
+	}
+	if !credsTrusted(b, src) {
+		return nil, envBaseRefusal(b, "credentials")
 	}
 	return session.New(b, token), nil
 }
 
-// requireAPIKey applies the credential precedence: flag > env > stored
-// profile. Money-moving commands call this; the session surface must
-// never fall through to it.
-func (r *resolved) requireAPIKey() (string, error) {
+// envBaseRefusal is the error for stored credentials + an untrusted
+// environment-supplied base URL.
+func envBaseRefusal(base, what string) error {
+	return fmt.Errorf("refusing to send stored %s to %s: that base URL comes from %s, which a project file (.envrc, .env, Makefile, CI) can set. Pass --base-url %s explicitly if you trust it, or unset %s",
+		what, baseHost(base), envBaseURL, base, envBaseURL)
+}
+
+// readStdinKey reads the API key from stdin once.
+func readStdinKey() (string, error) {
+	if g.stdinRead {
+		return g.stdinKey, nil
+	}
+	b, err := io.ReadAll(io.LimitReader(stdin, 4097))
+	if err != nil {
+		return "", fmt.Errorf("reading API key from stdin: %w", err)
+	}
+	if len(b) > 4096 {
+		return "", fmt.Errorf("API key from stdin is too long")
+	}
+	k := strings.TrimSpace(string(b))
+	if k == "" {
+		return "", fmt.Errorf("--api-key-stdin: no API key on stdin")
+	}
+	g.stdinRead, g.stdinKey = true, k
+	return k, nil
+}
+
+const apiKeyFlagWarning = "warning: --api-key is visible in process listings and shell history; prefer --api-key-stdin or the WAFFLE_API_KEY environment variable"
+
+// apiKey applies the credential precedence: stdin/flag > env > stored
+// profile. explicit is true unless the key came from the config file.
+func (r *resolved) apiKey() (key string, explicit bool, err error) {
+	if g.apiKeyStdin {
+		k, err := readStdinKey()
+		return k, true, err
+	}
 	if g.apiKeyFlag != "" {
-		return g.apiKeyFlag, nil
+		fmt.Fprintln(stderr, apiKeyFlagWarning)
+		return g.apiKeyFlag, true, nil
 	}
 	if v := os.Getenv(envAPIKey); v != "" {
-		return v, nil
+		return v, true, nil
 	}
 	if r.prof.APIKey != "" {
-		return r.prof.APIKey, nil
+		return r.prof.APIKey, false, nil
 	}
-	return "", fmt.Errorf("no API key configured — create one with %q, store one with %q, or export %s=<key>",
-		"waffle keys create", "waffle configure --api-key sk_...", envAPIKey)
+	return "", false, fmt.Errorf("no API key configured — create one with %q, store one with %q, or export %s=<key>",
+		"waffle keys create", "waffle configure --api-key-stdin", envAPIKey)
+}
+
+// requireAPIKey resolves the key for the validated base URL. A key from
+// the config file is refused when the base URL came only from the
+// environment and is not the default/loopback host; an explicit key
+// with such a base URL is allowed with a stderr warning. Money-moving
+// commands call this; the session surface must never fall through to it.
+func (r *resolved) requireAPIKey(base string, src baseSource) (string, error) {
+	key, explicit, err := r.apiKey()
+	if err != nil {
+		return "", err
+	}
+	if !credsTrusted(base, src) {
+		if !explicit {
+			return "", envBaseRefusal(base, "API key")
+		}
+		fmt.Fprintf(stderr, "warning: sending your API key to %s taken from %s\n", baseHost(base), envBaseURL)
+	}
+	return key, nil
 }
 
 // requireSession returns the stored dashboard session token. Only

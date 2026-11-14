@@ -17,7 +17,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
+
+// skipPermWarning is true where POSIX modes do not apply.
+var skipPermWarning = runtime.GOOS == "windows"
 
 // DefaultProfile is the profile used when --profile is not passed.
 const DefaultProfile = "default"
@@ -89,34 +93,70 @@ func Load() (*Config, error) {
 	return &c, nil
 }
 
-// Save writes the config atomically: the directory is created 0700 and
-// the file 0600, then renamed over the target so a crash mid-write never
-// truncates existing credentials.
+// Save writes the config atomically: the directory is created 0700 (and
+// tightened to 0700 if it is ours and group/world accessible), the data
+// goes to a fresh O_EXCL 0600 temp file in the same directory, is
+// fsynced, and is renamed over the target so a crash mid-write never
+// truncates existing credentials and a pre-planted file or symlink at a
+// predictable temp name is never followed.
 func (c *Config) Save() error {
 	p, err := Path()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("config: creating directory: %w", err)
 	}
+	secureDir(dir)
 	raw, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("config: encoding: %w", err)
 	}
 	raw = append(raw, '\n')
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, ".config-*.tmp") // 0600, O_EXCL
+	if err != nil {
 		return fmt.Errorf("config: writing: %w", err)
 	}
-	// WriteFile does not tighten the mode of a pre-existing tmp file.
-	if err := os.Chmod(tmp, 0o600); err != nil {
-		return fmt.Errorf("config: chmod: %w", err)
+	name := tmp.Name()
+	fail := func(what string, err error) error {
+		tmp.Close()
+		os.Remove(name)
+		return fmt.Errorf("config: %s: %w", what, err)
 	}
-	if err := os.Rename(tmp, p); err != nil {
+	if _, err := tmp.Write(raw); err != nil {
+		return fail("writing", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fail("sync", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return fail("chmod", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return fmt.Errorf("config: closing: %w", err)
+	}
+	if err := os.Rename(name, p); err != nil {
+		os.Remove(name)
 		return fmt.Errorf("config: replacing %s: %w", p, err)
 	}
 	return nil
+}
+
+// secureDir tightens a config directory that is group/world accessible
+// to 0700 when this user owns it, and warns on stderr otherwise.
+func secureDir(dir string) {
+	fi, err := os.Stat(dir)
+	if err != nil || fi.Mode().Perm()&0o077 == 0 || !ownsDir(fi) {
+		if err == nil && fi.Mode().Perm()&0o077 != 0 && !skipPermWarning {
+			fmt.Fprintf(os.Stderr, "warning: config directory %s is accessible to other users and not owned by you\n", dir)
+		}
+		return
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not tighten permissions of %s: %v\n", dir, err)
+	}
 }
 
 // Profile returns the named profile, creating it (empty) if missing, so

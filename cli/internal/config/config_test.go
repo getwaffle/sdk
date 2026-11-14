@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -92,5 +93,61 @@ func TestProfileGetOrCreate(t *testing.T) {
 	// same pointer back on second access
 	if c.Profile("a").APIKey != "x" {
 		t.Error("Profile(\"a\") returned a different entry")
+	}
+}
+
+func TestSaveUsesTempInSameDirAndLeavesNoStrays(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	c, _ := Load()
+	c.Profile("default").APIKey = "sk_x"
+	// a pre-planted predictable tmp name must not be followed
+	p, _ := Path()
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(t.TempDir(), "victim")
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(victim, p+".tmp"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(victim); err == nil {
+		t.Fatal("symlinked tmp was followed")
+	}
+	ents, _ := os.ReadDir(filepath.Dir(p))
+	for _, e := range ents {
+		if e.Name() != "config.json" && e.Name() != "config.json.tmp" {
+			t.Errorf("stray file %s", e.Name())
+		}
+	}
+	if runtime.GOOS != "windows" {
+		if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 {
+			t.Errorf("file mode %v", fi.Mode().Perm())
+		}
+	}
+}
+
+func TestSaveTightensLooseOwnedDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	p, _ := Path()
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := Load()
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode %v, want 0700", fi.Mode().Perm())
 	}
 }
