@@ -41,7 +41,10 @@ const DefaultBaseURL = "https://api.getwaffle.id"
 // mutable state after construction; the underlying *http.Client is itself
 // safe for concurrent use).
 type Client struct {
-	apiKey     string
+	// apiKey is held in a closure (funcs print as an address) so that reflection-based printing of a
+	// Client (including as an unexported nested field, where fmt cannot call
+	// methods) shows an address, never the key.
+	apiKey     func() string
 	baseURL    string
 	httpClient *http.Client
 	// baseURLErr is set by WithBaseURL when the URL fails validation; every
@@ -171,7 +174,7 @@ func newDefaultHTTPClient() *http.Client {
 // send and is omitted here to match the contract precisely).
 func NewClient(apiKey string, opts ...Option) *Client {
 	c := &Client{
-		apiKey:     apiKey,
+		apiKey:     func() string { return apiKey },
 		baseURL:    DefaultBaseURL,
 		httpClient: newDefaultHTTPClient(),
 	}
@@ -195,17 +198,32 @@ func redactedKey(k string) string {
 	return "****"
 }
 
-// String returns a redacted description so a Client printed with fmt or
-// logged never leaks the API key.
-func (c *Client) String() string {
-	if c == nil {
-		return "waffle.Client(nil)"
+func (c *Client) key() string {
+	if c == nil || c.apiKey == nil {
+		return ""
 	}
-	return "waffle.Client{baseURL: " + c.baseURL + ", apiKey: " + redactedKey(c.apiKey) + "}"
+	return c.apiKey()
+}
+
+// String returns a redacted description so a Client printed with fmt or
+// logged never leaks the API key. It has a value receiver so it applies to
+// both Client and *Client.
+func (c Client) String() string {
+	return "waffle.Client{baseURL: " + c.baseURL + ", apiKey: " + redactedKey(c.key()) + "}"
 }
 
 // GoString implements fmt.GoStringer (the %#v verb) with the same redaction.
-func (c *Client) GoString() string { return c.String() }
+func (c Client) GoString() string { return c.String() }
+
+// Format implements fmt.Formatter so every verb (%v %+v %#v %s %q %d ...)
+// prints only the redacted form.
+func (c Client) Format(f fmt.State, verb rune) {
+	if verb == 'q' {
+		fmt.Fprintf(f, "%q", c.String())
+		return
+	}
+	io.WriteString(f, c.String())
+}
 
 // readCapped reads at most max bytes from r and reports ok=false if the
 // body is larger.
@@ -398,8 +416,8 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.key() != "" {
+		req.Header.Set("Authorization", "Bearer "+c.key())
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -436,8 +454,8 @@ func (c *Client) doRaw(ctx context.Context, method, path string) ([]byte, error)
 	if err != nil {
 		return nil, fmt.Errorf("waffle: building request: %w", err)
 	}
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.key() != "" {
+		req.Header.Set("Authorization", "Bearer "+c.key())
 	}
 
 	resp, err := c.httpClient.Do(req)

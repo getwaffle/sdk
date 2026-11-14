@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -210,5 +211,40 @@ func TestClientRedaction(t *testing.T) {
 	}
 	if got := NewClient("weird").String(); strings.Contains(got, "weird") {
 		t.Fatal(got)
+	}
+}
+
+func TestClientRedactionAllShapes(t *testing.T) {
+	c := NewClient("sk_live_SUPERSECRET1234", WithBaseURL("https://api.example.com"))
+	type exported struct{ C Client }
+	type unexported struct{ c Client }
+	type ptrField struct{ C *Client }
+	shapes := map[string]any{
+		"pointer":    c,
+		"value":      *c,
+		"exported":   exported{*c},
+		"unexported": unexported{*c},
+		"ptrField":   ptrField{c},
+		"slice":      []Client{*c},
+		"map":        map[string]Client{"a": *c},
+	}
+	for name, v := range shapes {
+		for _, f := range []string{"%v", "%+v", "%#v", "%s", "%q", "%d", "%x"} {
+			out := fmt.Sprintf(f, v)
+			if strings.Contains(out, "SUPERSECRET") || strings.Contains(out, "1234") || strings.Contains(out, "sk_live_S") {
+				t.Fatalf("%s %s leaked: %s", name, f, out)
+			}
+		}
+	}
+	for _, name := range []string{"pointer", "value"} {
+		for _, f := range []string{"%v", "%+v", "%#v", "%s"} {
+			if out := fmt.Sprintf(f, shapes[name]); !strings.Contains(out, "sk_live_****") {
+				t.Fatalf("%s %s = %s", name, f, out)
+			}
+		}
+	}
+	b, err := json.Marshal(c)
+	if err != nil || strings.Contains(string(b), "SUPERSECRET") || string(b) != "{}" {
+		t.Fatalf("json: %s %v", b, err)
 	}
 }
