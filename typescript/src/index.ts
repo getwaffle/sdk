@@ -1,7 +1,14 @@
-export { WaffleClient, DEFAULT_BASE_URL } from "./client.js";
+export { WaffleClient, DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS, normalizeBaseUrl } from "./client.js";
 export type { WaffleClientOptions } from "./client.js";
-export { WaffleError, WafflePermissionError, PERMISSION_ERROR_PATTERN } from "./errors.js";
-export { generateIdempotencyKey } from "./idempotency.js";
+export {
+  WaffleError,
+  WafflePermissionError,
+  WaffleTimeoutError,
+  WaffleResponseTooLargeError,
+  WaffleValidationError,
+  PERMISSION_ERROR_PATTERN,
+} from "./errors.js";
+export { generateIdempotencyKey, validateIdempotencyKey } from "./idempotency.js";
 export type {
   Balance,
   Bank,

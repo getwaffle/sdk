@@ -37,7 +37,7 @@ export class WebhookVerificationError extends Error {
 export interface WebhookEvent {
   /** e.g. `charge.paid`, `payout.completed`, `webhook.test`. */
   event: string | undefined;
-  /** Outbox id; equal to the `X-Waffle-Delivery` header. */
+  /** Outbox id, inside the signed body; the safest deduplication key. */
   eventId: string | undefined;
   /** RFC3339 UTC time the event was enqueued, as sent. */
   createdAt: string | undefined;
@@ -50,7 +50,9 @@ export interface WebhookEvent {
   mode: string | undefined;
   /**
    * The `X-Waffle-Delivery` header: stable across retries of the same
-   * event. Deduplicate on this value.
+   * event. It is NOT covered by the signature (an unsigned header, so it can
+   * be altered in transit). Prefer the signed `eventId` from the body as the
+   * deduplication key.
    */
   deliveryId: string | undefined;
   /** The complete decoded JSON object (snake_case, including fields not modelled above). */
@@ -64,8 +66,9 @@ export interface VerifyWebhookOptions {
   now?: () => number;
   /**
    * Accept the legacy `X-Waffle-Signature` header when the V2 header is
-   * absent. Default `true`. The legacy signature covers the body only and
-   * has NO replay protection.
+   * absent. Default `false`. Opting in DISABLES replay protection: the legacy
+   * signature covers the body only, and Waffle sends V2 on every delivery, so
+   * a replayer can strip V2 and replay a captured legacy-only request forever.
    */
   allowLegacy?: boolean;
 }
@@ -159,7 +162,7 @@ function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
  * Verifies `X-Waffle-Signature-V2` (`t=<unix>,v1=<hex>`, HMAC-SHA256 over
  * `"<t>.<body>"`) with a constant-time compare and a timestamp tolerance
  * in both directions. Only when that header is absent and `allowLegacy` is
- * true is the legacy `X-Waffle-Signature` (`sha256=<hex>` over the body)
+ * explicitly true (default false) is the legacy `X-Waffle-Signature` (`sha256=<hex>` over the body)
  * accepted — it carries no replay protection. A present-but-invalid V2
  * header never falls back to legacy.
  *
@@ -175,7 +178,7 @@ export async function verifyWebhook(
   if (!secret) throw new TypeError("verifyWebhook requires a non-empty signing secret");
   const tolerance = options.toleranceSeconds ?? DEFAULT_WEBHOOK_TOLERANCE_SECONDS;
   const now = options.now ?? (() => Date.now() / 1000);
-  const allowLegacy = options.allowLegacy ?? true;
+  const allowLegacy = options.allowLegacy ?? false;
 
   const bodyBytes =
     typeof body === "string" ? encoder.encode(body) : new Uint8Array(body);

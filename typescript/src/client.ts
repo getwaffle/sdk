@@ -1,5 +1,11 @@
-import { errorFromResponse, WaffleError } from "./errors.js";
-import { generateIdempotencyKey } from "./idempotency.js";
+import {
+  errorFromResponse,
+  WaffleError,
+  WaffleResponseTooLargeError,
+  WaffleTimeoutError,
+  WaffleValidationError,
+} from "./errors.js";
+import { generateIdempotencyKey, validateIdempotencyKey } from "./idempotency.js";
 import type {
   Balance,
   Bank,
@@ -21,6 +27,59 @@ import type {
 /** Default merchant API base URL — Waffle's production API. */
 export const DEFAULT_BASE_URL = "https://api.getwaffle.id";
 
+/** Default per-request timeout in milliseconds. */
+export const DEFAULT_TIMEOUT_MS = 30_000;
+/** Cap for JSON/text response bodies (8 MiB). */
+const MAX_TEXT_BYTES = 8 * 1024 * 1024;
+/** Cap for raw (receipt PDF) response bodies (16 MiB). */
+const MAX_BINARY_BYTES = 16 * 1024 * 1024;
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Validates and normalises a base URL. Requires `https:` (plain `http:` only
+ * for localhost, 127.0.0.1 and [::1]); rejects userinfo, query, fragment and
+ * an empty host; strips trailing slashes. Throws a plain `Error` otherwise.
+ */
+export function normalizeBaseUrl(input: string): string {
+  const raw = String(input).trim();
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error("WaffleClient: baseUrl is not a valid absolute URL");
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") {
+    throw new Error("WaffleClient: baseUrl must use https");
+  }
+  if (!u.hostname) throw new Error("WaffleClient: baseUrl has an empty host");
+  if (u.protocol === "http:" && !LOCAL_HOSTS.has(u.hostname)) {
+    throw new Error(
+      "WaffleClient: baseUrl must use https (http is allowed only for localhost, 127.0.0.1 and [::1])",
+    );
+  }
+  if (u.username || u.password || /^[a-z]+:\/\/[^/?#]*@/i.test(raw)) {
+    throw new Error("WaffleClient: baseUrl must not contain credentials (userinfo)");
+  }
+  if (u.search || u.hash || /[?#]/.test(raw)) {
+    throw new Error("WaffleClient: baseUrl must not contain a query string or fragment");
+  }
+  return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
+}
+
+function requireAmount(amount: unknown): void {
+  if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0) {
+    throw new WaffleValidationError(
+      "amount must be a positive safe integer in the currency's minor unit",
+    );
+  }
+}
+
+function redactedKey(apiKey: string): string {
+  const m = /^(sk_(?:live|test)_)/.exec(apiKey);
+  return `${m ? m[1] : ""}****`;
+}
+
 export interface WaffleClientOptions {
   /** Merchant API key, sent as `Authorization: Bearer <apiKey>`. */
   apiKey: string;
@@ -31,6 +90,17 @@ export interface WaffleClientOptions {
   baseUrl?: string;
   /** Injectable `fetch` implementation; defaults to the global `fetch`. */
   fetch?: typeof fetch;
+  /**
+   * Per-request timeout in milliseconds (default 30000; must be a positive
+   * finite number). On expiry a {@link WaffleTimeoutError} is thrown. For a
+   * POST the outcome is UNKNOWN: retry with the SAME idempotency key.
+   */
+  timeoutMs?: number;
+  /**
+   * Optional caller `AbortSignal` applied to every request, combined with the
+   * timeout. When it aborts, the abort reason/`AbortError` is thrown as is.
+   */
+  signal?: AbortSignal;
 }
 
 interface RawFeeRule {
@@ -222,17 +292,34 @@ function buildQuery(params: Record<string, string | number | undefined>): string
  * float.
  */
 export class WaffleClient {
-  private readonly apiKey: string;
-  private readonly baseUrl: string;
-  private readonly fetchImpl: typeof fetch;
+  readonly #apiKey: string;
+  readonly #baseUrl: string;
+  readonly #fetchImpl: typeof fetch;
+  readonly #timeoutMs: number;
+  readonly #signal: AbortSignal | undefined;
 
   constructor(options: WaffleClientOptions) {
-    if (!options.apiKey) {
+    if (!options.apiKey || typeof options.apiKey !== "string") {
       throw new Error("WaffleClient: apiKey is required");
     }
-    this.apiKey = options.apiKey;
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
-    this.fetchImpl = options.fetch ?? fetch;
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error("WaffleClient: timeoutMs must be a positive finite number");
+    }
+    this.#apiKey = options.apiKey;
+    this.#baseUrl = normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
+    this.#fetchImpl = options.fetch ?? fetch;
+    this.#timeoutMs = timeoutMs;
+    this.#signal = options.signal;
+  }
+
+  /** Never exposes the API key: only the mode prefix (`sk_live_`/`sk_test_`) and `****`. */
+  toJSON(): { apiKey: string; baseUrl: string } {
+    return { apiKey: redactedKey(this.#apiKey), baseUrl: this.#baseUrl };
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")](): { name: string; apiKey: string; baseUrl: string } {
+    return { name: "WaffleClient", ...this.toJSON() };
   }
 
   /**
@@ -248,6 +335,8 @@ export class WaffleClient {
     params: CreateChargeParams,
     idempotencyKey?: string,
   ): Promise<Charge> {
+    requireAmount(params.amount);
+    if (idempotencyKey !== undefined) validateIdempotencyKey(idempotencyKey);
     const body: Record<string, unknown> = {
       amount: params.amount,
       currency: params.currency,
@@ -265,7 +354,7 @@ export class WaffleClient {
     }
     if (params.metadata !== undefined) body["metadata"] = params.metadata;
 
-    const raw = await this.requestJson<RawChargeResponse>("POST", "/v1/charges", {
+    const raw = await this.#requestJson<RawChargeResponse>("POST", "/v1/charges", {
       body,
       idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
@@ -278,7 +367,7 @@ export class WaffleClient {
    * doesn't belong to this merchant).
    */
   async getCharge(id: string): Promise<Charge> {
-    const raw = await this.requestJson<RawChargeResponse>(
+    const raw = await this.#requestJson<RawChargeResponse>(
       "GET",
       `/v1/charges/${encodeURIComponent(id)}`,
       {},
@@ -299,7 +388,7 @@ export class WaffleClient {
       "created[gte]": params.createdGte,
       "created[lte]": params.createdLte,
     });
-    const raw = await this.requestJson<RawListChargesResponse>(
+    const raw = await this.#requestJson<RawListChargesResponse>(
       "GET",
       `/v1/charges${qs}`,
       {},
@@ -339,7 +428,7 @@ export class WaffleClient {
    * 409 if the charge isn't `"paid"` yet.
    */
   async getChargeReceipt(id: string): Promise<Uint8Array> {
-    return this.requestBinary("GET", `/v1/charges/${encodeURIComponent(id)}/receipt.pdf`);
+    return this.#requestBinary("GET", `/v1/charges/${encodeURIComponent(id)}/receipt.pdf`);
   }
 
   /**
@@ -351,6 +440,7 @@ export class WaffleClient {
    * billed.
    */
   async calculateFee(params: CalculateFeeParams): Promise<FeeQuote> {
+    requireAmount(params.amount);
     const body: Record<string, unknown> = {
       amount: params.amount,
       currency: params.currency,
@@ -358,7 +448,7 @@ export class WaffleClient {
     if (params.channel !== undefined) body["channel"] = params.channel;
     if (params.vaBank !== undefined) body["va_bank"] = params.vaBank;
 
-    const raw = await this.requestJson<RawFeeQuoteResponse>(
+    const raw = await this.#requestJson<RawFeeQuoteResponse>(
       "POST",
       "/v1/fees/calculate",
       { body },
@@ -379,7 +469,7 @@ export class WaffleClient {
    * status 404 if the merchant has never registered one for this mode.
    */
   async getBankAccount(): Promise<BankAccount> {
-    const raw = await this.requestJson<RawBankAccountResponse>(
+    const raw = await this.#requestJson<RawBankAccountResponse>(
       "GET",
       "/v1/bank-accounts",
       {},
@@ -405,7 +495,9 @@ export class WaffleClient {
     params: CreatePayoutParams,
     idempotencyKey?: string,
   ): Promise<Payout> {
-    const raw = await this.requestJson<RawPayoutResponse>("POST", "/v1/payouts", {
+    requireAmount(params.amount);
+    if (idempotencyKey !== undefined) validateIdempotencyKey(idempotencyKey);
+    const raw = await this.#requestJson<RawPayoutResponse>("POST", "/v1/payouts", {
       body: {
         bank_account_id: params.bankAccountId,
         amount: params.amount,
@@ -422,7 +514,7 @@ export class WaffleClient {
    * doesn't belong to this merchant).
    */
   async getPayout(id: string): Promise<Payout> {
-    const raw = await this.requestJson<RawPayoutResponse>(
+    const raw = await this.#requestJson<RawPayoutResponse>(
       "GET",
       `/v1/payouts/${encodeURIComponent(id)}`,
       {},
@@ -443,7 +535,7 @@ export class WaffleClient {
       "created[gte]": params.createdGte,
       "created[lte]": params.createdLte,
     });
-    const raw = await this.requestJson<RawListPayoutsResponse>(
+    const raw = await this.#requestJson<RawListPayoutsResponse>(
       "GET",
       `/v1/payouts${qs}`,
       {},
@@ -477,7 +569,7 @@ export class WaffleClient {
    * 409 if the payout isn't `"completed"` yet.
    */
   async getPayoutReceipt(id: string): Promise<Uint8Array> {
-    return this.requestBinary("GET", `/v1/payouts/${encodeURIComponent(id)}/receipt.pdf`);
+    return this.#requestBinary("GET", `/v1/payouts/${encodeURIComponent(id)}/receipt.pdf`);
   }
 
   /**
@@ -490,7 +582,7 @@ export class WaffleClient {
     const path = currency
       ? `/v1/balance?currency=${encodeURIComponent(currency)}`
       : "/v1/balance";
-    const raw = await this.requestJson<RawBalanceResponse>("GET", path, {});
+    const raw = await this.#requestJson<RawBalanceResponse>("GET", path, {});
     return { currency: raw.currency, amount: raw.amount };
   }
 
@@ -502,7 +594,7 @@ export class WaffleClient {
    * permissions.
    */
   async whoami(): Promise<WhoAmI> {
-    const raw = await this.requestJson<RawWhoAmIResponse>("GET", "/v1/whoami", {});
+    const raw = await this.#requestJson<RawWhoAmIResponse>("GET", "/v1/whoami", {});
     return {
       merchantId: raw.merchant_id,
       businessName: raw.business_name,
@@ -518,7 +610,7 @@ export class WaffleClient {
    * `sortOrder`.
    */
   async listBanks(): Promise<Bank[]> {
-    const raw = await this.requestJson<RawBankResponse[]>("GET", "/v1/banks", {});
+    const raw = await this.#requestJson<RawBankResponse[]>("GET", "/v1/banks", {});
     return raw.map((b) => ({
       code: b.code,
       name: b.name,
@@ -529,63 +621,166 @@ export class WaffleClient {
 
   /** `GET /healthz`. No auth. Returns `true` when the body is `"ok"`. */
   async healthz(): Promise<boolean> {
-    const res = await this.fetchImpl(`${this.baseUrl}/healthz`, { method: "GET" });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new WaffleError(res.status, text || res.statusText);
-    }
-    const text = await res.text();
-    return text.trim() === "ok";
+    return this.#exec("GET", "/healthz", {}, async (res, signal) => {
+      if (!res.ok) {
+        throw errorFromResponse(res.status, await this.#parseErrorMessage(res, signal));
+      }
+      const text = new TextDecoder().decode(
+        await readLimited(res, MAX_TEXT_BYTES, signal),
+      );
+      return text.trim() === "ok";
+    });
   }
 
-  private async parseErrorMessage(res: Response): Promise<string> {
+  /** Builds the request signal: timeout combined with the optional caller signal. */
+  #makeSignal(): { signal: AbortSignal; timeout: AbortSignal; cleanup: () => void } {
+    const timeout = AbortSignal.timeout(this.#timeoutMs);
+    const caller = this.#signal;
+    if (!caller) return { signal: timeout, timeout, cleanup: () => {} };
+    const anyFn = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+    if (typeof anyFn === "function") {
+      return { signal: anyFn.call(AbortSignal, [timeout, caller]), timeout, cleanup: () => {} };
+    }
+    const ctrl = new AbortController();
+    const onAbort = (src: AbortSignal) => () => ctrl.abort(src.reason);
+    const onT = onAbort(timeout);
+    const onC = onAbort(caller);
+    if (caller.aborted) ctrl.abort(caller.reason);
+    else {
+      timeout.addEventListener("abort", onT, { once: true });
+      caller.addEventListener("abort", onC, { once: true });
+    }
+    return {
+      signal: ctrl.signal,
+      timeout,
+      cleanup: () => {
+        timeout.removeEventListener("abort", onT);
+        caller.removeEventListener("abort", onC);
+      },
+    };
+  }
+
+  async #exec<T>(
+    method: "GET" | "POST",
+    path: string,
+    init: { headers?: Record<string, string>; body?: string },
+    handle: (res: Response, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const { signal, timeout, cleanup } = this.#makeSignal();
+    try {
+      // redirect:"error" so the Authorization header and POST body can never
+      // be forwarded by a redirect.
+      const res = await this.#fetchImpl(`${this.#baseUrl}${path}`, {
+        method,
+        ...init,
+        redirect: "error",
+        signal,
+      });
+      return await handle(res, signal);
+    } catch (err) {
+      if (err instanceof WaffleError) throw err;
+      if (timeout.aborted && !this.#signal?.aborted) {
+        throw new WaffleTimeoutError(method, path, this.#timeoutMs);
+      }
+      throw err;
+    } finally {
+      cleanup();
+    }
+  }
+
+  async #parseErrorMessage(res: Response, signal: AbortSignal): Promise<string> {
     let message = res.statusText;
     try {
-      const errBody = (await res.json()) as RawErrorResponse;
-      if (errBody.error) message = errBody.error;
+      const text = new TextDecoder().decode(await readLimited(res, MAX_TEXT_BYTES, signal));
+      const errBody = JSON.parse(text) as { error?: unknown };
+      if (typeof errBody?.error === "string" && errBody.error) message = errBody.error;
     } catch {
-      // body wasn't JSON — fall back to statusText
+      if (signal.aborted) throw signal.reason ?? new Error("aborted");
+      // body wasn't JSON / too large — fall back to statusText
     }
     return message;
   }
 
-  private async requestJson<T>(
+  async #requestJson<T>(
     method: "GET" | "POST",
     path: string,
     opts: { body?: Record<string, unknown>; idempotencyKey?: string },
   ): Promise<T> {
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
+      Authorization: `Bearer ${this.#apiKey}`,
     };
     if (opts.body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.idempotencyKey !== undefined) {
       headers["Idempotency-Key"] = opts.idempotencyKey;
     }
-
-    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+    return this.#exec(
       method,
-      headers,
-      ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
-    });
-
-    if (!res.ok) {
-      throw errorFromResponse(res.status, await this.parseErrorMessage(res));
-    }
-
-    return (await res.json()) as T;
+      path,
+      { headers, ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}) },
+      async (res, signal) => {
+        if (!res.ok) {
+          throw errorFromResponse(res.status, await this.#parseErrorMessage(res, signal));
+        }
+        const bytes = await readLimited(res, MAX_TEXT_BYTES, signal);
+        return JSON.parse(new TextDecoder().decode(bytes)) as T;
+      },
+    );
   }
 
-  private async requestBinary(method: "GET", path: string): Promise<Uint8Array> {
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
-    };
-
-    const res = await this.fetchImpl(`${this.baseUrl}${path}`, { method, headers });
-
-    if (!res.ok) {
-      throw errorFromResponse(res.status, await this.parseErrorMessage(res));
-    }
-
-    return new Uint8Array(await res.arrayBuffer());
+  async #requestBinary(method: "GET", path: string): Promise<Uint8Array> {
+    return this.#exec(
+      method,
+      path,
+      { headers: { Authorization: `Bearer ${this.#apiKey}` } },
+      async (res, signal) => {
+        if (!res.ok) {
+          throw errorFromResponse(res.status, await this.#parseErrorMessage(res, signal));
+        }
+        return readLimited(res, MAX_BINARY_BYTES, signal);
+      },
+    );
   }
+}
+
+/**
+ * Reads a response body enforcing `limit` bytes: Content-Length is checked
+ * first, then the cap is enforced while streaming (the stream is cancelled
+ * once exceeded).
+ */
+async function readLimited(res: Response, limit: number, signal: AbortSignal): Promise<Uint8Array> {
+  const declared = res.headers.get("content-length");
+  if (declared !== null && /^\d+$/.test(declared.trim()) && Number(declared) > limit) {
+    void res.body?.cancel().catch(() => {});
+    throw new WaffleResponseTooLargeError(res.status, limit);
+  }
+  if (!res.body) {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.length > limit) throw new WaffleResponseTooLargeError(res.status, limit);
+    return buf;
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      if (signal.aborted) throw signal.reason ?? new Error("aborted");
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > limit) {
+        await reader.cancel().catch(() => {});
+        throw new WaffleResponseTooLargeError(res.status, limit);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
 }
