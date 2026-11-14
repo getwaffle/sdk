@@ -53,14 +53,13 @@ func TestCredentialAttachmentRule(t *testing.T) {
 		profBase          string
 		flagKey, envKey   string
 		storedKey         string
+		stdinKey          string
 		wantErr, wantWarn bool
 		wantKey           string
 	}{
 		{name: "stored key, default host", storedKey: "sk_s", wantKey: "sk_s"},
 		{name: "stored key, env default host", envBase: "https://api.getwaffle.id", storedKey: "sk_s", wantKey: "sk_s"},
 		{name: "stored key, env default host with slash+443", envBase: "https://API.getwaffle.id:443/", storedKey: "sk_s", wantKey: "sk_s"},
-		{name: "stored key, env loopback", envBase: "http://127.0.0.1:9", storedKey: "sk_s", wantKey: "sk_s"},
-		{name: "stored key, env localhost", envBase: "http://localhost:9", storedKey: "sk_s", wantKey: "sk_s"},
 		{name: "stored key, env attacker", envBase: evil, storedKey: "sk_s", wantErr: true},
 		{name: "stored key, env lookalike host", envBase: "https://api.getwaffle.id.evil.com", storedKey: "sk_s", wantErr: true},
 		{name: "stored key, env default host other port", envBase: "https://api.getwaffle.id:8443", storedKey: "sk_s", wantErr: true},
@@ -68,8 +67,15 @@ func TestCredentialAttachmentRule(t *testing.T) {
 		{name: "stored key, flag beats env attacker", flagBase: "https://api.getwaffle.id", envBase: evil, storedKey: "sk_s", wantKey: "sk_s"},
 		{name: "stored key, profile base", profBase: "https://api.example.com", storedKey: "sk_s", wantKey: "sk_s"},
 		{name: "stored key, env attacker over profile", envBase: evil, profBase: "https://api.example.com", storedKey: "sk_s", wantErr: true},
-		{name: "env key, env attacker warns", envBase: evil, envKey: "sk_e", storedKey: "sk_s", wantKey: "sk_e", wantWarn: true},
-		{name: "flag key, env attacker warns", envBase: evil, flagKey: "sk_f", wantKey: "sk_f", wantWarn: true},
+		{name: "env key, env attacker refused", envBase: evil, envKey: "sk_e", wantErr: true},
+		{name: "env key + stored, env attacker refused", envBase: evil, envKey: "sk_e", storedKey: "sk_s", wantErr: true},
+		{name: "--api-key flag, env attacker refused", envBase: evil, flagKey: "sk_f", wantErr: true},
+		{name: "stdin key, env attacker refused", envBase: evil, stdinKey: "sk_i", wantErr: true},
+		{name: "stored key, env loopback refused", envBase: "http://127.0.0.1:9", storedKey: "sk_s", wantErr: true},
+		{name: "stored key, env localhost refused", envBase: "http://localhost:9", storedKey: "sk_s", wantErr: true},
+		{name: "env key, env loopback ok", envBase: "http://127.0.0.1:9", envKey: "sk_e", storedKey: "sk_s", wantKey: "sk_e"},
+		{name: "stored key, flag loopback ok", flagBase: "http://127.0.0.1:9", storedKey: "sk_s", wantKey: "sk_s"},
+		{name: "stored key, profile loopback ok", profBase: "http://127.0.0.1:9", storedKey: "sk_s", wantKey: "sk_s"},
 		{name: "env key, env default host quiet", envBase: "https://api.getwaffle.id", envKey: "sk_e", wantKey: "sk_e"},
 		{name: "env key, flag attacker quiet", flagBase: evil, envKey: "sk_e", wantKey: "sk_e"},
 		{name: "no key", wantErr: true},
@@ -77,6 +83,9 @@ func TestCredentialAttachmentRule(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			g = globals{baseURLFlag: tc.flagBase, apiKeyFlag: tc.flagKey}
+			if tc.stdinKey != "" {
+				g.apiKeyStdin, g.stdinRead, g.stdinKey = true, true, tc.stdinKey
+			}
 			t.Setenv("WAFFLE_BASE_URL", tc.envBase)
 			t.Setenv("WAFFLE_API_KEY", tc.envKey)
 			errBuf := captureStderr(t)
@@ -90,7 +99,7 @@ func TestCredentialAttachmentRule(t *testing.T) {
 				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
 			}
 			if err != nil {
-				if tc.storedKey != "" && !strings.Contains(err.Error(), "--base-url") {
+				if tc.name != "no key" && !strings.Contains(err.Error(), "--base-url") {
 					t.Errorf("refusal should tell the user to pass --base-url: %v", err)
 				}
 				return
@@ -102,9 +111,10 @@ func TestCredentialAttachmentRule(t *testing.T) {
 			if tc.flagKey == "" && strings.Contains(errBuf.String(), "--api-key is visible") {
 				t.Errorf("unexpected --api-key warning")
 			}
-			if tc.wantWarn != strings.Contains(errBuf.String(), "sending your API key to") {
-				t.Errorf("warn = %v, stderr %q", warned, errBuf.String())
+			if strings.Contains(errBuf.String(), "sending your API key to") {
+				t.Errorf("unexpected warning, stderr %q", errBuf.String())
 			}
+			_ = warned
 		})
 	}
 }
@@ -117,7 +127,7 @@ func TestEnvBaseURLStoredKeyNeverSent(t *testing.T) {
 	}
 	t.Setenv("WAFFLE_BASE_URL", "https://attacker.example.com")
 	_, err := runCLI(t, "balance")
-	if err == nil || !strings.Contains(err.Error(), "refusing to send stored API key") {
+	if err == nil || !strings.Contains(err.Error(), "refusing to send an API key") {
 		t.Fatalf("want refusal, got %v", err)
 	}
 	// the session surface (login password / session token) is refused too

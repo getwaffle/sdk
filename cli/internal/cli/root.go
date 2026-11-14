@@ -260,16 +260,16 @@ func (r *resolved) sessionClient(token string) (*session.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !credsTrusted(b, src) {
+	if !credsTrusted(b, src) || (token != "" && src == srcEnv && !isDefaultAPIHost(b)) {
 		return nil, envBaseRefusal(b, "credentials")
 	}
 	return session.New(b, token), nil
 }
 
-// envBaseRefusal is the error for stored credentials + an untrusted
+// envBaseRefusal is the error for a credential + an untrusted
 // environment-supplied base URL.
 func envBaseRefusal(base, what string) error {
-	return fmt.Errorf("refusing to send stored %s to %s: that base URL comes from %s, which a project file (.envrc, .env, Makefile, CI) can set. Pass --base-url %s explicitly if you trust it, or unset %s",
+	return fmt.Errorf("refusing to send %s to %s: that base URL comes only from %s, which a project file (.envrc, .env, Makefile, CI) can set. Pass --base-url %s explicitly (the flag, not the environment) if you trust it, or unset %s",
 		what, baseHost(base), envBaseURL, base, envBaseURL)
 }
 
@@ -316,21 +316,23 @@ func (r *resolved) apiKey() (key string, explicit bool, err error) {
 		"waffle keys create", "waffle configure --api-key-stdin", envAPIKey)
 }
 
-// requireAPIKey resolves the key for the validated base URL. A key from
-// the config file is refused when the base URL came only from the
-// environment and is not the default/loopback host; an explicit key
-// with such a base URL is allowed with a stderr warning. Money-moving
-// commands call this; the session surface must never fall through to it.
+// requireAPIKey resolves the key for the validated base URL. When the
+// base URL comes only from the environment and is not the default API
+// host or loopback, NO credential is attached (stored, env, flag or
+// stdin). For an environment-supplied loopback URL a stored key is also
+// refused (a local port squatter could capture it); an explicit key is
+// allowed. Money-moving commands call this; the session surface must
+// never fall through to it.
 func (r *resolved) requireAPIKey(base string, src baseSource) (string, error) {
+	if !credsTrusted(base, src) {
+		return "", envBaseRefusal(base, "an API key")
+	}
 	key, explicit, err := r.apiKey()
 	if err != nil {
 		return "", err
 	}
-	if !credsTrusted(base, src) {
-		if !explicit {
-			return "", envBaseRefusal(base, "API key")
-		}
-		fmt.Fprintf(stderr, "warning: sending your API key to %s taken from %s\n", baseHost(base), envBaseURL)
+	if src == srcEnv && !explicit && !isDefaultAPIHost(base) {
+		return "", envBaseRefusal(base, "the stored API key")
 	}
 	return key, nil
 }

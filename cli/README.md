@@ -68,15 +68,17 @@ env > stored profile value > `https://api.getwaffle.id` (the SDK
 default, production). The base URL must be an origin only (https, or
 http for loopback): no path, query, or fragment.
 
-**Stored credentials are never sent to a host that only the environment
+**No credential is ever sent to a host that only the environment
 names.** A project file (`.envrc`, `.env`, a Makefile, a CI variable)
-can set `WAFFLE_BASE_URL`, so a key or session stored by
-`login`/`configure` is attached only when the base URL is the default
-API host, a loopback host, the profile's own stored base URL, or was
-given with the `--base-url` flag. Otherwise the CLI refuses and asks you
-to pass `--base-url` explicitly. A key you supply yourself
-(`--api-key-stdin`, `--api-key`, `WAFFLE_API_KEY`) is still sent to an
-env-supplied host, with a one-line stderr warning naming it.
+can set `WAFFLE_BASE_URL`, so when the base URL comes only from that
+variable and is neither the default API host nor loopback, the CLI
+attaches nothing (stored key, session token, `WAFFLE_API_KEY`,
+`--api-key`, `--api-key-stdin`, login password) and fails with an error
+asking you to pass `--base-url <url>` explicitly. Trusted sources: the
+default host, a loopback host, the `--base-url` flag, and the profile's
+own stored base URL. For an env-supplied loopback URL, a *stored* key is
+also refused (a local port squatter could capture it); a key you pass
+explicitly is allowed there.
 
 ## Scopes and presets
 
