@@ -27,7 +27,7 @@ jobs:
       typescript: ${{ steps.f.outputs.typescript }}
       mcp: ${{ steps.f.outputs.mcp }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
@@ -63,7 +63,7 @@ jobs:
           - dir: mcp
             enabled: ${{ needs.changes.outputs.mcp }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
         if: matrix.enabled == 'true'
