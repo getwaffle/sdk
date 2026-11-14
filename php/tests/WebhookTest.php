@@ -174,15 +174,42 @@ final class WebhookTest extends TestCase
         $this->assertRejected(WebhookErrorReason::MissingSignature, self::BODY1, []);
     }
 
-    public function testLegacyAllowedByDefaultHasNoTimestampCheck(): void
+    public function testLegacyOptInHasNoTimestampCheck(): void
     {
         $h = ['x-waffle-signature' => 'sha256=' . self::B1_LEGACY, 'X-Waffle-Delivery' => 'abc'];
-        $ev = Webhook::verify(self::BODY1, $h, self::SECRET, now: static fn (): int => 1);
+        $ev = Webhook::verify(self::BODY1, $h, self::SECRET, now: static fn (): int => 1, allowLegacy: true);
 
         self::assertSame('charge.paid', $ev->event);
         self::assertSame('abc', $ev->deliveryId);
         $this->assertRejected(WebhookErrorReason::SignatureMismatch, self::BODY1 . ' ', $h);
         $this->assertRejected(WebhookErrorReason::SignatureMismatch, self::BODY1, $h, self::OTHER_SECRET);
+    }
+
+    public function testLegacyOnlyIsRejectedByDefault(): void
+    {
+        $headers = ['X-Waffle-Signature' => 'sha256=' . self::B1_LEGACY];
+
+        try {
+            Webhook::verify(self::BODY1, $headers, self::SECRET, now: self::clock());
+            self::fail('expected WebhookVerificationException');
+        } catch (WebhookVerificationException $e) {
+            self::assertSame(WebhookErrorReason::MissingSignature, $e->reason);
+        }
+    }
+
+    public function testV2IsAcceptedByDefaultEvenWhenLegacyHeaderIsAlsoPresent(): void
+    {
+        $ev = Webhook::verify(
+            self::BODY1,
+            [
+                self::V2 => 't=' . self::T . ',v1=' . self::B1_V2,
+                'X-Waffle-Signature' => 'sha256=' . self::B1_LEGACY,
+            ],
+            self::SECRET,
+            now: self::clock(),
+        );
+
+        self::assertSame('charge.paid', $ev->event);
     }
 
     public function testLegacyDisallowed(): void

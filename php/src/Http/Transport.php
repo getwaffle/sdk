@@ -15,7 +15,15 @@ namespace Waffle\Http;
 interface Transport
 {
     /**
-     * @param array<string,string> $headers header name => value
+     * @param array<string,string> $headers header name => value. Carries
+     *   the `Authorization` bearer credential, so it is marked
+     *   `#[\SensitiveParameter]` (PHP 8.2+ keeps it out of stack traces);
+     *   implementations should repeat the attribute and must never log it.
      */
-    public function send(string $method, string $url, array $headers, ?string $body): TransportResponse;
+    public function send(
+        string $method,
+        string $url,
+        #[\SensitiveParameter] array $headers,
+        ?string $body,
+    ): TransportResponse;
 }

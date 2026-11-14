@@ -39,10 +39,14 @@ final class Webhook
      *
      * Verifies `X-Waffle-Signature-V2` (`t=<unix>,v1=<hex>`, HMAC-SHA256
      * over `"<t>.<body>"`) with `hash_equals` and a timestamp tolerance in
-     * both directions. Only when that header is absent and `$allowLegacy`
-     * is true is the legacy `X-Waffle-Signature` (`sha256=<hex>` over the
-     * body) accepted — it has NO replay protection. A present-but-invalid
-     * V2 header never falls back to legacy.
+     * both directions. The server sends BOTH signature headers on every
+     * delivery, so a request without V2 is treated as suspicious and is
+     * rejected by default. Only when that header is absent and
+     * `$allowLegacy` is explicitly set to true is the legacy
+     * `X-Waffle-Signature` (`sha256=<hex>` over the body) accepted. WARNING:
+     * enabling it disables replay protection entirely — an attacker who
+     * captured one legacy-only delivery can replay it forever. A
+     * present-but-invalid V2 header never falls back to legacy.
      *
      * @param array<string,string|list<string>> $headers
      * @param (callable(): int)|null $now clock returning unix seconds (tests); default `time()`
@@ -56,7 +60,7 @@ final class Webhook
         string $secret,
         int $toleranceSeconds = self::DEFAULT_TOLERANCE_SECONDS,
         ?callable $now = null,
-        bool $allowLegacy = true,
+        bool $allowLegacy = false,
     ): WebhookEvent {
         if ($secret === '') {
             throw new \InvalidArgumentException('Webhook::verify requires a non-empty signing secret');

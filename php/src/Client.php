@@ -57,23 +57,84 @@ final class Client
     private readonly string $baseUrl;
     private readonly Transport $transport;
 
+    /** Allowed shape of a caller-supplied `Idempotency-Key` (prevents header injection). */
+    private const IDEMPOTENCY_KEY_PATTERN = '/^[A-Za-z0-9._:-]{1,255}$/D';
+
+    /** Maximum length of an exception message built from a server response. */
+    private const MAX_ERROR_MESSAGE_LENGTH = 512;
+
     /**
      * @param string $apiKey sent as `Authorization: Bearer <apiKey>` on
      *   every request except GET /healthz and GET /v1/banks (neither
      *   requires auth, but the header is harmless to send there too).
+     *   Must be visible ASCII only (no whitespace, CR/LF/NUL or other
+     *   control characters).
      * @param string|null $baseUrl defaults to {@see self::DEFAULT_BASE_URL}.
+     *   The API key is sent to this URL on every call, so it must be
+     *   `https://` (plain `http://` is accepted only for `localhost`,
+     *   `127.0.0.1` and `[::1]`), must have a host, and must not carry
+     *   userinfo, a query string or a fragment. A path prefix is allowed;
+     *   trailing slashes are trimmed.
      * @param Transport|null $transport override the HTTP transport
      *   (defaults to {@see CurlTransport}); primarily useful for tests.
+     * @throws \InvalidArgumentException when `$apiKey` or `$baseUrl` is invalid.
      */
-    public function __construct(string $apiKey, ?string $baseUrl = null, ?Transport $transport = null)
-    {
+    public function __construct(
+        #[\SensitiveParameter] string $apiKey,
+        ?string $baseUrl = null,
+        ?Transport $transport = null,
+    ) {
         if ($apiKey === '') {
             throw new \InvalidArgumentException('Waffle\\Client: apiKey is required');
         }
+        if (preg_match('/[\x00-\x20\x7F-\xFF]/', $apiKey) === 1) {
+            throw new \InvalidArgumentException(
+                'Waffle\\Client: apiKey must not contain whitespace, control characters or non-ASCII bytes',
+            );
+        }
 
         $this->apiKey = $apiKey;
-        $this->baseUrl = rtrim($baseUrl ?? self::DEFAULT_BASE_URL, '/');
+        $this->baseUrl = self::validateBaseUrl($baseUrl ?? self::DEFAULT_BASE_URL);
         $this->transport = $transport ?? new CurlTransport();
+    }
+
+    /**
+     * Never reveal the API key in var_dump()/print_r()/debug output: only
+     * the mode prefix (when recognisable) is shown.
+     *
+     * @return array<string,string>
+     */
+    public function __debugInfo(): array
+    {
+        $prefix = '';
+        foreach (['sk_live_', 'sk_test_'] as $candidate) {
+            if (str_starts_with($this->apiKey, $candidate)) {
+                $prefix = $candidate;
+                break;
+            }
+        }
+
+        return [
+            'apiKey' => $prefix . '****',
+            'baseUrl' => $this->baseUrl,
+        ];
+    }
+
+    /**
+     * A Client holds a credential and must never be serialized (session
+     * storage, caches, queues).
+     *
+     * @return array<string,mixed>
+     */
+    public function __serialize(): array
+    {
+        throw new \LogicException('Waffle\\Client holds an API key and cannot be serialized');
+    }
+
+    /** @param array<string,mixed> $data */
+    public function __unserialize(array $data): void
+    {
+        throw new \LogicException('Waffle\\Client cannot be unserialized');
     }
 
     /**
@@ -101,9 +162,7 @@ final class Client
      */
     public function createCharge(CreateChargeParams $params, string $idempotencyKey): Charge
     {
-        if ($idempotencyKey === '') {
-            throw new \InvalidArgumentException('idempotencyKey is required for createCharge()');
-        }
+        self::assertIdempotencyKey($idempotencyKey, 'createCharge');
 
         $data = $this->request('POST', '/v1/charges', $params->toArray(), [
             'Idempotency-Key' => $idempotencyKey,
@@ -284,9 +343,7 @@ final class Client
      */
     public function createPayout(CreatePayoutParams $params, string $idempotencyKey): Payout
     {
-        if ($idempotencyKey === '') {
-            throw new \InvalidArgumentException('idempotencyKey is required for createPayout()');
-        }
+        self::assertIdempotencyKey($idempotencyKey, 'createPayout');
 
         $data = $this->request('POST', '/v1/payouts', $params->toArray(), [
             'Idempotency-Key' => $idempotencyKey,
@@ -550,6 +607,82 @@ final class Client
         return $headers;
     }
 
+    /**
+     * @throws \InvalidArgumentException
+     */
+    private static function assertIdempotencyKey(string $idempotencyKey, string $method): void
+    {
+        if ($idempotencyKey === '') {
+            throw new \InvalidArgumentException("idempotencyKey is required for {$method}()");
+        }
+        if (preg_match(self::IDEMPOTENCY_KEY_PATTERN, $idempotencyKey) !== 1) {
+            throw new \InvalidArgumentException(
+                "idempotencyKey for {$method}() must be 1-255 characters of A-Z a-z 0-9 . _ : -",
+            );
+        }
+    }
+
+    /**
+     * Validates the base URL (the API key is sent to it on every call) and
+     * returns it with trailing slashes trimmed.
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function validateBaseUrl(string $baseUrl): string
+    {
+        $fail = static fn (string $why): \InvalidArgumentException => new \InvalidArgumentException(
+            'Waffle\\Client: invalid baseUrl: ' . $why,
+        );
+
+        if (preg_match('/[\x00-\x20\x7F-\xFF]/', $baseUrl) === 1) {
+            throw $fail('must not contain whitespace, control characters or non-ASCII bytes');
+        }
+        if (str_contains($baseUrl, '\\')) {
+            throw $fail('must not contain a backslash');
+        }
+        if (str_contains($baseUrl, '?')) {
+            throw $fail('must not contain a query string');
+        }
+        if (str_contains($baseUrl, '#')) {
+            throw $fail('must not contain a fragment');
+        }
+
+        $parts = parse_url($baseUrl);
+        if ($parts === false) {
+            throw $fail('is not a valid URL');
+        }
+        if (isset($parts['user']) || isset($parts['pass'])) {
+            throw $fail('must not contain credentials (userinfo)');
+        }
+
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        if ($host === '') {
+            throw $fail('must have a host');
+        }
+        if ($scheme !== 'https' && $scheme !== 'http') {
+            throw $fail('must use https');
+        }
+        if ($scheme === 'http' && !in_array($host, ['localhost', '127.0.0.1', '[::1]'], true)) {
+            throw $fail('must use https (plain http is allowed only for localhost, 127.0.0.1 and [::1])');
+        }
+
+        return rtrim($baseUrl, '/');
+    }
+
+    /** Strips control characters and caps the length of server-controlled text. */
+    private static function sanitizeMessage(string $message): string
+    {
+        $message = (string) preg_replace('/[\x00-\x1F\x7F]/', ' ', $message);
+        if (strlen($message) > self::MAX_ERROR_MESSAGE_LENGTH) {
+            $message = function_exists('mb_strcut')
+                ? mb_strcut($message, 0, self::MAX_ERROR_MESSAGE_LENGTH, 'UTF-8')
+                : substr($message, 0, self::MAX_ERROR_MESSAGE_LENGTH);
+        }
+
+        return $message;
+    }
+
     private function isSuccess(int $statusCode): bool
     {
         return $statusCode >= 200 && $statusCode < 300;
@@ -567,6 +700,8 @@ final class Client
         } catch (\JsonException) {
             // Body wasn't JSON — fall back to the raw body/status above.
         }
+
+        $message = self::sanitizeMessage($message);
 
         if ($response->statusCode === 403 && WafflePermissionException::matches($message)) {
             throw new WafflePermissionException($response->statusCode, $message);

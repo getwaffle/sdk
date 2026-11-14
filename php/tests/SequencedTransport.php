@@ -25,7 +25,7 @@ final class SequencedTransport implements Transport
     {
     }
 
-    public function send(string $method, string $url, array $headers, ?string $body): TransportResponse
+    public function send(string $method, string $url, #[\SensitiveParameter] array $headers, ?string $body): TransportResponse
     {
         $this->urls[] = $url;
 
