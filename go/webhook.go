@@ -101,9 +101,10 @@ func WithWebhookClock(now func() time.Time) WebhookOption {
 }
 
 // WithWebhookAllowLegacy controls the fallback to the legacy
-// X-Waffle-Signature header (default true). The legacy signature covers the
-// body only, so it offers NO replay protection; pass false once your
-// receiver only needs to accept V2-signed deliveries.
+// X-Waffle-Signature header (default false: legacy-only deliveries are
+// rejected). Waffle sends both headers on every delivery, so a replayer
+// could otherwise strip V2. The legacy signature covers the body only, so
+// enabling this DISABLES replay protection for any delivery lacking V2.
 func WithWebhookAllowLegacy(allow bool) WebhookOption {
 	return func(c *webhookConfig) { c.allowLegacy = allow }
 }
@@ -116,7 +117,8 @@ func WithWebhookAllowLegacy(allow bool) WebhookOption {
 //
 // The replay-protected X-Waffle-Signature-V2 header is verified when
 // present (constant-time compare, timestamp tolerance in both directions).
-// Only when it is absent, and WithWebhookAllowLegacy is true, the legacy
+// Only when it is absent, and WithWebhookAllowLegacy(true) was passed (the
+// default is false), the legacy
 // X-Waffle-Signature header is verified over the raw body (no replay
 // protection). A present-but-invalid V2 header never falls back to legacy.
 //
@@ -126,7 +128,7 @@ func VerifyWebhook(body []byte, headers http.Header, secret string, opts ...Webh
 	if secret == "" {
 		return nil, errors.New("waffle: VerifyWebhook requires a non-empty signing secret")
 	}
-	cfg := webhookConfig{tolerance: DefaultWebhookTolerance, now: time.Now, allowLegacy: true}
+	cfg := webhookConfig{tolerance: DefaultWebhookTolerance, now: time.Now, allowLegacy: false}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -154,7 +156,7 @@ func VerifyWebhook(body []byte, headers http.Header, secret string, opts ...Webh
 		if skew < 0 {
 			skew = -skew
 		}
-		if time.Duration(skew)*time.Second > cfg.tolerance {
+		if skew > int64(cfg.tolerance/time.Second) {
 			return nil, &WebhookError{WebhookTimestampOutOfTolerance,
 				fmt.Sprintf("timestamp is %ds from now, tolerance is %ds", skew, int64(cfg.tolerance/time.Second))}
 		}

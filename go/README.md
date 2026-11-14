@@ -160,8 +160,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 `X-Waffle-Signature-V2` (`t=<unix>,v1=<hex>`, HMAC-SHA256 over
 `"<t>.<body>"`) is verified with a constant-time compare and a 300 s
 tolerance in both directions. The legacy `X-Waffle-Signature` header is
-accepted **only when V2 is absent** and has **no replay protection**;
-pass `waffle.WithWebhookAllowLegacy(false)` to refuse it.
+**rejected by default**: Waffle sends both headers on every delivery, so
+an attacker could strip V2 to replay a captured request. Only if you must
+accept legacy-only deliveries, pass `waffle.WithWebhookAllowLegacy(true)`
+(accepted only when V2 is absent; **no replay protection**).
 `WithWebhookTolerance(d)` and `WithWebhookClock(fn)` adjust the window
 and the clock. `WebhookEvent.Raw` holds the full decoded payload
 (numbers as `json.Number`). Respond 2xx only after the event is durably
@@ -185,6 +187,28 @@ Retrying a request with the same key returns the original resource
 instead of creating a duplicate. Pass your own key (e.g. an internal
 order id) when you want retry-safety *across* separate calls, not just
 within one.
+
+> **Do not retry with an empty key.** The empty string generates a **new**
+> key on every call, so wrapping `CreateCharge(ctx, params, "")` in a retry
+> loop can create duplicate charges after a timeout. Generate **one key per
+> logical operation** (e.g. per order) and reuse it on every retry.
+
+## Secure defaults
+
+- The default HTTP client has a 30 s timeout and **does not follow
+  redirects** (a redirect is returned as an `*APIError`), so the API key
+  and request bodies are never forwarded elsewhere. A client passed via
+  `WithHTTPClient` with a nil `CheckRedirect` is shallow-copied with
+  redirects disabled (yours is not modified); set your own `CheckRedirect`
+  to override.
+- `WithBaseURL` must be `https` (plain `http` only for `localhost`,
+  `127.0.0.1`, `::1`), with no credentials, query, fragment or path. An
+  invalid URL makes every call return `waffle.ErrInvalidBaseURL`
+  (`errors.Is`) before any network I/O.
+- Response bodies are capped at 8 MiB (`waffle.ErrResponseTooLarge`); error
+  bodies at 64 KiB. `APIError.Message` is sanitised (control characters
+  removed) and truncated to 512 bytes.
+- Printing a `*Client` (`%v`, `%+v`, `%#v`) redacts the API key.
 
 ## Methods
 
