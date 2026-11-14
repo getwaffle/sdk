@@ -136,6 +136,21 @@ describe("verifyWebhook", () => {
     expect(await reason(verifyWebhook(BODY1, { [V2]: `t=${T - 301},v1=${B1_OLD301}` }, SECRET, { now }))).toBe("timestamp_out_of_tolerance");
   });
 
+  it.each([NaN, Infinity, -Infinity, -1, "300" as unknown as number])(
+    "fails closed on invalid toleranceSeconds %s",
+    async (toleranceSeconds) => {
+      const stale = { [V2]: `t=${T - 99999},v1=${B1_V2}` };
+      await expect(verifyWebhook(BODY1, stale, SECRET, { now, toleranceSeconds })).rejects.toBeInstanceOf(TypeError);
+    },
+  );
+
+  it("accepts toleranceSeconds 0 only for the exact second and rejects non-finite now()", async () => {
+    await verifyWebhook(BODY1, { [V2]: `t=${T},v1=${B1_V2}` }, SECRET, { now, toleranceSeconds: 0 });
+    await expect(
+      verifyWebhook(BODY1, { [V2]: `t=${T},v1=${B1_V2}` }, SECRET, { now: () => NaN }),
+    ).rejects.toBeInstanceOf(TypeError);
+  });
+
   it("reports invalid_json for validly signed non-object bodies", async () => {
     expect(await reason(verifyWebhook("not json", { [V2]: `t=${T},v1=${NOT_JSON_SIG}` }, SECRET, { now }))).toBe("invalid_json");
     expect(await reason(verifyWebhook("[1]", { [V2]: `t=${T},v1=${ARRAY_SIG}` }, SECRET, { now }))).toBe("invalid_json");

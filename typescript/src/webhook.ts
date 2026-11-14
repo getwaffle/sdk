@@ -167,7 +167,7 @@ function concat(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
  * header never falls back to legacy.
  *
  * @throws {WebhookVerificationError} with a machine-readable `reason`.
- * @throws {TypeError} when `secret` is empty.
+ * @throws {TypeError} when `secret` is empty, `toleranceSeconds` is not a finite number >= 0, or `now()` is not finite.
  */
 export async function verifyWebhook(
   body: string | Uint8Array | ArrayBuffer,
@@ -177,6 +177,9 @@ export async function verifyWebhook(
 ): Promise<WebhookEvent> {
   if (!secret) throw new TypeError("verifyWebhook requires a non-empty signing secret");
   const tolerance = options.toleranceSeconds ?? DEFAULT_WEBHOOK_TOLERANCE_SECONDS;
+  if (typeof tolerance !== "number" || !Number.isFinite(tolerance) || tolerance < 0) {
+    throw new TypeError("verifyWebhook: toleranceSeconds must be a finite number >= 0");
+  }
   const now = options.now ?? (() => Date.now() / 1000);
   const allowLegacy = options.allowLegacy ?? false;
 
@@ -190,7 +193,11 @@ export async function verifyWebhook(
     if (!(await hmacMatches(secret, signed, sigs))) {
       throw new WebhookVerificationError("signature_mismatch", "signature does not match payload and secret");
     }
-    const skew = Math.abs(Math.floor(now()) - t);
+    const nowSec = now();
+    if (typeof nowSec !== "number" || !Number.isFinite(nowSec)) {
+      throw new TypeError("verifyWebhook: now() must return a finite number of unix seconds");
+    }
+    const skew = Math.abs(Math.floor(nowSec) - t);
     if (skew > tolerance) {
       throw new WebhookVerificationError(
         "timestamp_out_of_tolerance",

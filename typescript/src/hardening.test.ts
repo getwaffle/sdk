@@ -116,9 +116,9 @@ describe("timeouts", () => {
 describe("baseUrl validation", () => {
   const good: [string, string][] = [
     ["https://api.getwaffle.id", "https://api.getwaffle.id"],
-    ["https://api.getwaffle.id///", "https://api.getwaffle.id"],
     ["  https://api.getwaffle.id/  ", "https://api.getwaffle.id"],
-    ["https://example.com/proxy/", "https://example.com/proxy"],
+    ["https://example.com/", "https://example.com"],
+    ["https://Example.com:8443/", "https://example.com:8443"],
     ["http://localhost:8080", "http://localhost:8080"],
     ["http://127.0.0.1:8080/", "http://127.0.0.1:8080"],
     ["http://[::1]:8080", "http://[::1]:8080"],
@@ -130,6 +130,10 @@ describe("baseUrl validation", () => {
 
   const bad = [
     "http://api.getwaffle.id",
+    "https://a.com/v1/",
+    "https://api.getwaffle.id//",
+    "https://a.com/v1",
+    "http://localhost:3000/some/path",
     "http://localhost.evil.com",
     "ftp://api.getwaffle.id",
     "https://user:pw@api.getwaffle.id",

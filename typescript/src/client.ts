@@ -38,8 +38,8 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
  * Validates and normalises a base URL. Requires `https:` (plain `http:` only
- * for localhost, 127.0.0.1 and [::1]); rejects userinfo, query, fragment and
- * an empty host; strips trailing slashes. Throws a plain `Error` otherwise.
+ * for localhost, 127.0.0.1 and [::1]); rejects userinfo, query, fragment, a path and
+ * an empty host; normalises to `scheme://host[:port]`. Throws a plain `Error` otherwise. Any path other than "" or "/" is rejected.
  */
 export function normalizeBaseUrl(input: string): string {
   const raw = String(input).trim();
@@ -64,7 +64,12 @@ export function normalizeBaseUrl(input: string): string {
   if (u.search || u.hash || /[?#]/.test(raw)) {
     throw new Error("WaffleClient: baseUrl must not contain a query string or fragment");
   }
-  return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
+  if (u.pathname !== "/" && u.pathname !== "") {
+    throw new Error(
+      "WaffleClient: baseUrl must not contain a path (use scheme://host[:port]); behind a gateway path prefix, use a custom fetch that rewrites the URL",
+    );
+  }
+  return u.origin;
 }
 
 function requireAmount(amount: unknown): void {

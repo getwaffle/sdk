@@ -62,8 +62,10 @@ const client = new WaffleClient({
   the `Authorization` header and POST bodies cannot be forwarded elsewhere by
   a redirect. A redirecting server surfaces as a thrown fetch error.
 - **`baseUrl`** must be `https://`; plain `http://` is accepted only for
-  `localhost`, `127.0.0.1` and `[::1]`. Userinfo, query strings, fragments
-  and empty hosts are rejected, and trailing slashes are trimmed. An invalid
+  `localhost`, `127.0.0.1` and `[::1]`. Userinfo, query strings, fragments,
+  empty hosts and any path (other than `/`) are rejected; it is normalised
+  to `scheme://host[:port]`. Behind a gateway path prefix, use a custom
+  `fetch` that rewrites the URL instead. An invalid
   value throws from the constructor. A custom `fetch` is still supported.
 - **Response size caps:** JSON/text bodies are limited to 8 MiB and receipt
   PDFs to 16 MiB (`Content-Length` is checked first, then enforced while
@@ -209,7 +211,7 @@ if legacy were accepted an attacker could strip the V2 header and replay a
 captured legacy-only request forever. Setting `allowLegacy: true` disables
 replay protection; do not use it unless you must support a sender that
 cannot produce V2. Other options:
-`{ toleranceSeconds, now }` (`now` returns unix seconds). `event.raw`
+`{ toleranceSeconds, now }` (`now` returns unix seconds). `toleranceSeconds` must be a finite number >= 0, otherwise a `TypeError` is thrown (fail closed). `event.raw`
 holds the full decoded snake_case payload.
 
 `event.deliveryId` comes from the **unsigned** `X-Waffle-Delivery` header,
