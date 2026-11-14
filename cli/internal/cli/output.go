@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"unicode"
 )
 
 // emitJSON prints any value as indented JSON for --json mode. Response
@@ -17,19 +18,26 @@ func emitJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-// sanitize replaces control characters (ESC, CSI, BEL, CR, etc.) in
-// server-supplied text with U+FFFD so a hostile or compromised response
-// cannot inject terminal escape sequences. Newline and tab are kept.
+// sanitize makes server-supplied text safe for a terminal: control
+// characters (ESC, CSI, BEL, CR, ...), Unicode format characters (bidi
+// overrides/isolates, zero-width, BOM) and the U+2028/U+2029 separators
+// become U+FFFD, and embedded newlines become a visible \n escape so a
+// value cannot forge extra key-value lines. Tab is kept.
 func sanitize(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\t' {
-			return r
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\t':
+			b.WriteRune(r)
+		case r < 0x20 || (r >= 0x7f && r < 0xa0) || r == '\u2028' || r == '\u2029' || unicode.Is(unicode.Cf, r):
+			b.WriteRune('\uFFFD')
+		default:
+			b.WriteRune(r)
 		}
-		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
-			return '\uFFFD'
-		}
-		return r
-	}, s)
+	}
+	return b.String()
 }
 
 // kv is one row of human-oriented key/value output.

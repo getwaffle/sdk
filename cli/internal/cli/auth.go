@@ -129,6 +129,7 @@ func newLoginCmd() *cobra.Command {
 	var (
 		emailFlag  string
 		apiKeyFlag string
+		keyStdin   bool
 		open       bool
 	)
 	cmd := &cobra.Command{
@@ -136,7 +137,8 @@ func newLoginCmd() *cobra.Command {
 		Short: "Authenticate with email+password, or store an API key directly",
 		Long: `Authenticate and store credentials in the waffle config file.
 
-With --api-key, stores that key and skips the password flow entirely.
+With --api-key-stdin (or --api-key, which leaks into ps and shell
+history), stores that key and skips the password flow entirely.
 Otherwise prompts for email+password, exchanges them for a dashboard
 session (POST /v1/merchants/login), and stores the session — enough for
 "whoami" and "keys". Money-moving commands additionally need an API key:
@@ -144,7 +146,7 @@ if none is stored, login prints how to create one ("waffle keys
 create") and, when the dashboard location is known, its API-keys page.`,
 		Example: `  waffle login
   waffle login --email ops@myshop.id
-  waffle login --api-key sk_sandbox_xxx
+  echo "$SK" | waffle login --api-key-stdin
   waffle configure --dashboard-url https://dashboard.example.com`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, err := g.load()
@@ -158,6 +160,16 @@ create") and, when the dashboard location is known, its API-keys page.`,
 				r.prof.BaseURL = strings.TrimRight(g.baseURLFlag, "/")
 			}
 
+			if apiKeyFlag != "" && keyStdin {
+				return fmt.Errorf("pass only one of --api-key and --api-key-stdin")
+			}
+			if keyStdin {
+				if apiKeyFlag, err = readStdinKey(); err != nil {
+					return err
+				}
+			} else if apiKeyFlag != "" {
+				fmt.Fprintln(stderr, apiKeyFlagWarning)
+			}
 			if apiKeyFlag != "" {
 				r.prof.APIKey = apiKeyFlag
 				if err := r.cfg.Save(); err != nil {
@@ -223,7 +235,8 @@ No API key stored yet — money commands (balance, charges, payouts) need one.
 		},
 	}
 	cmd.Flags().StringVar(&emailFlag, "email", "", "account email (skips the email prompt)")
-	cmd.Flags().StringVar(&apiKeyFlag, "api-key", "", "store this API key instead of running the email+password flow")
+	cmd.Flags().StringVar(&apiKeyFlag, "api-key", "", "store this API key instead of the email+password flow (INSECURE: visible in ps/shell history; prefer --api-key-stdin)")
+	cmd.Flags().BoolVar(&keyStdin, "api-key-stdin", false, "read the API key to store from stdin instead of the email+password flow")
 	cmd.Flags().BoolVar(&open, "open", false, "open the dashboard API-keys page in a browser when no key is stored")
 	return cmd
 }
@@ -296,6 +309,7 @@ func newWhoamiCmd() *cobra.Command {
 func newConfigureCmd() *cobra.Command {
 	var (
 		apiKey       string
+		keyStdin     bool
 		dashboardURL string
 	)
 	cmd := &cobra.Command{
@@ -305,18 +319,33 @@ func newConfigureCmd() *cobra.Command {
 
 A merchant who already holds an API key never needs "login": configure
 the key once and every money command works. Precedence for money
-commands remains flag > WAFFLE_API_KEY > this stored value.`,
-		Example: `  waffle configure --api-key sk_sandbox_xxx
+commands remains flag > WAFFLE_API_KEY > this stored value.
+
+Pipe the key on stdin (--api-key-stdin): --api-key is visible in process
+listings and shell history.`,
+		Example: `  echo "$SK" | waffle configure --api-key-stdin
   waffle configure --base-url https://api.example.com
   waffle configure --dashboard-url https://dashboard.example.com
-  waffle --profile prod configure --api-key sk_live_xxx`,
+  waffle --profile prod configure --api-key-stdin < key.txt`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if apiKey == "" && g.baseURLFlag == "" && dashboardURL == "" {
-				return fmt.Errorf("nothing to configure — pass --api-key, --base-url, and/or --dashboard-url")
+			if apiKey != "" && keyStdin {
+				return fmt.Errorf("pass only one of --api-key and --api-key-stdin")
+			}
+			if apiKey == "" && !keyStdin && g.baseURLFlag == "" && dashboardURL == "" {
+				return fmt.Errorf("nothing to configure — pass --api-key-stdin, --base-url, and/or --dashboard-url")
 			}
 			r, err := g.load()
 			if err != nil {
 				return err
+			}
+			if keyStdin {
+				k, err := readStdinKey()
+				if err != nil {
+					return err
+				}
+				apiKey = k
+			} else if apiKey != "" {
+				fmt.Fprintln(stderr, apiKeyFlagWarning)
 			}
 			if apiKey != "" {
 				r.prof.APIKey = apiKey
@@ -342,7 +371,8 @@ commands remains flag > WAFFLE_API_KEY > this stored value.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&apiKey, "api-key", "", "merchant API key to store")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "merchant API key to store (INSECURE: visible in ps/shell history; prefer --api-key-stdin)")
+	cmd.Flags().BoolVar(&keyStdin, "api-key-stdin", false, "read the merchant API key to store from stdin")
 	cmd.Flags().StringVar(&dashboardURL, "dashboard-url", "", "merchant dashboard base URL (used for post-login links)")
 	return cmd
 }

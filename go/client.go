@@ -18,6 +18,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -25,6 +26,10 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // DefaultBaseURL is the default merchant API base URL — Waffle's
@@ -36,33 +41,131 @@ const DefaultBaseURL = "https://api.getwaffle.id"
 // mutable state after construction; the underlying *http.Client is itself
 // safe for concurrent use).
 type Client struct {
-	apiKey     string
+	// apiKey is held in a closure (funcs print as an address) so that reflection-based printing of a
+	// Client (including as an unexported nested field, where fmt cannot call
+	// methods) shows an address, never the key.
+	apiKey     func() string
 	baseURL    string
 	httpClient *http.Client
+	// baseURLErr is set by WithBaseURL when the URL fails validation; every
+	// request method returns it before any network I/O.
+	baseURLErr error
 }
+
+// ErrInvalidBaseURL is returned (wrapped; test with errors.Is) by every
+// request method when the client was built with a WithBaseURL value that
+// is not acceptable.
+var ErrInvalidBaseURL = errors.New("waffle: invalid base URL")
+
+// ErrResponseTooLarge is returned (wrapped; test with errors.Is) when a
+// response body exceeds the SDK's size cap (8 MiB for successful
+// responses).
+var ErrResponseTooLarge = errors.New("waffle: response body too large")
+
+const (
+	maxResponseBytes      = 8 << 20  // successful bodies
+	maxErrorResponseBytes = 64 << 10 // non-2xx bodies
+	maxErrorMessageBytes  = 512      // APIError.Message
+	defaultHTTPTimeout    = 30 * time.Second
+)
 
 // Option configures a Client constructed by NewClient.
 type Option func(*Client)
 
+// validateBaseURL checks u and returns the normalised base URL
+// (scheme://host, no trailing slash). Rules: scheme must be https (http is
+// allowed only for localhost, 127.0.0.1 and ::1); no userinfo, query or
+// fragment; non-empty host; no path other than trailing slashes.
+func validateBaseURL(raw string) (string, error) {
+	bad := func(why string) (string, error) {
+		return "", fmt.Errorf("%w: %s", ErrInvalidBaseURL, why)
+	}
+	trimmed := strings.TrimRight(raw, "/")
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return bad("cannot be parsed")
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return bad("host is empty")
+	}
+	if u.User != nil {
+		return bad("must not contain credentials")
+	}
+	if u.RawQuery != "" || u.ForceQuery || strings.Contains(trimmed, "?") {
+		return bad("must not contain a query")
+	}
+	if u.Fragment != "" || strings.Contains(trimmed, "#") {
+		return bad("must not contain a fragment")
+	}
+	if u.Opaque != "" || u.Path != "" || u.RawPath != "" {
+		return bad("must not contain a path")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+	case "http":
+		switch strings.ToLower(u.Hostname()) {
+		case "localhost", "127.0.0.1", "::1":
+		default:
+			return bad("http is only allowed for localhost, 127.0.0.1 and ::1")
+		}
+	default:
+		return bad("scheme must be https")
+	}
+	return strings.ToLower(u.Scheme) + "://" + u.Host, nil
+}
+
 // WithBaseURL overrides the merchant API base URL. Default is
 // DefaultBaseURL (Waffle's production API, "https://api.getwaffle.id").
-// A trailing slash is trimmed automatically.
+// Trailing slashes are trimmed automatically.
+//
+// The URL is validated: the scheme must be https (plain http is accepted
+// only for localhost, 127.0.0.1 and ::1, for local development); userinfo,
+// query, fragment and any path are rejected, and the host must be
+// non-empty. NewClient's signature does not return an error, so an invalid
+// URL is recorded on the client and every request method then returns an
+// error matching ErrInvalidBaseURL (errors.Is) before any network I/O.
 func WithBaseURL(u string) Option {
 	return func(c *Client) {
-		for len(u) > 0 && u[len(u)-1] == '/' {
-			u = u[:len(u)-1]
+		norm, err := validateBaseURL(u)
+		if err != nil {
+			c.baseURLErr = err
+			return
 		}
-		c.baseURL = u
+		c.baseURL = norm
+		c.baseURLErr = nil
 	}
 }
 
 // WithHTTPClient overrides the *http.Client used to make requests. Default
-// is http.DefaultClient. Use this to set timeouts, custom transports,
-// proxies, or tracing instrumentation.
+// is a client with a 30 s Timeout that never follows redirects. Use this to
+// set timeouts, custom transports, proxies, or tracing instrumentation.
+//
+// Redirects: the SDK sends the API key and POST bodies, so following a
+// redirect could forward them to another URL (or downgrade https to http).
+// If hc.CheckRedirect is nil, the SDK uses a shallow copy of hc (your
+// client is not modified) that returns the redirect response as-is
+// (http.ErrUseLastResponse), surfacing as an *APIError. A CheckRedirect you
+// set yourself is respected. Note that a client you pass with Timeout == 0
+// has no timeout; set one or use context deadlines.
 func WithHTTPClient(hc *http.Client) Option {
 	return func(c *Client) {
+		if hc == nil {
+			c.httpClient = newDefaultHTTPClient()
+			return
+		}
+		if hc.CheckRedirect == nil {
+			cp := *hc
+			cp.CheckRedirect = noRedirect
+			hc = &cp
+		}
 		c.httpClient = hc
 	}
+}
+
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+func newDefaultHTTPClient() *http.Client {
+	return &http.Client{Timeout: defaultHTTPTimeout, CheckRedirect: noRedirect}
 }
 
 // NewClient constructs a Waffle merchant API client. apiKey is sent as
@@ -71,14 +174,124 @@ func WithHTTPClient(hc *http.Client) Option {
 // send and is omitted here to match the contract precisely).
 func NewClient(apiKey string, opts ...Option) *Client {
 	c := &Client{
-		apiKey:     apiKey,
+		apiKey:     func() string { return apiKey },
 		baseURL:    DefaultBaseURL,
-		httpClient: http.DefaultClient,
+		httpClient: newDefaultHTTPClient(),
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
+}
+
+// redactedKey keeps only the mode prefix (sk_live_ / sk_test_), never any
+// of the secret part.
+func redactedKey(k string) string {
+	if k == "" {
+		return "<empty>"
+	}
+	for _, p := range []string{"sk_live_", "sk_test_"} {
+		if strings.HasPrefix(k, p) {
+			return p + "****"
+		}
+	}
+	return "****"
+}
+
+func (c *Client) key() string {
+	if c == nil || c.apiKey == nil {
+		return ""
+	}
+	return c.apiKey()
+}
+
+// String returns a redacted description so a Client printed with fmt or
+// logged never leaks the API key. It has a value receiver so it applies to
+// both Client and *Client.
+func (c Client) String() string {
+	return "waffle.Client{baseURL: " + c.baseURL + ", apiKey: " + redactedKey(c.key()) + "}"
+}
+
+// GoString implements fmt.GoStringer (the %#v verb) with the same redaction.
+func (c Client) GoString() string { return c.String() }
+
+// Format implements fmt.Formatter so every verb (%v %+v %#v %s %q %d ...)
+// prints only the redacted form.
+func (c Client) Format(f fmt.State, verb rune) {
+	if verb == 'q' {
+		fmt.Fprintf(f, "%q", c.String())
+		return
+	}
+	io.WriteString(f, c.String())
+}
+
+// readCapped reads at most max bytes from r and reports ok=false if the
+// body is larger.
+func readCapped(r io.Reader, max int64) (body []byte, ok bool, err error) {
+	b, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(b)) > max {
+		return nil, false, nil
+	}
+	return b, true, nil
+}
+
+// readResponse reads resp.Body applying the success/error size caps. For a
+// non-2xx response that exceeds the cap it returns an *APIError (keeping
+// the status code) instead of the body.
+func readResponse(resp *http.Response) ([]byte, error) {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, ok, err := readCapped(resp.Body, maxErrorResponseBytes)
+		if err != nil {
+			return nil, fmt.Errorf("waffle: reading response body: %w", err)
+		}
+		if !ok {
+			return nil, fmt.Errorf("waffle: request failed: %w", &APIError{
+				StatusCode: resp.StatusCode,
+				Message:    "error response body exceeded 64 KiB and was discarded",
+			})
+		}
+		return nil, translateError(resp.StatusCode, b)
+	}
+	b, ok, err := readCapped(resp.Body, maxResponseBytes)
+	if err != nil {
+		return nil, fmt.Errorf("waffle: reading response body: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("%w (limit %d bytes)", ErrResponseTooLarge, int64(maxResponseBytes))
+	}
+	return b, nil
+}
+
+// sanitizeMessage makes server-supplied text safe to log and display:
+// control, format and line/paragraph-separator characters become a space,
+// invalid UTF-8 becomes '?', and the result is cut to 512 bytes on a rune
+// boundary.
+func sanitizeMessage(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s) && sb.Len() < maxErrorMessageBytes+utf8.UTFMax; {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		switch {
+		case r == utf8.RuneError && size <= 1:
+			sb.WriteByte('?')
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), r == '\u2028', r == '\u2029':
+			sb.WriteByte(' ')
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	out := sb.String()
+	if len(out) > maxErrorMessageBytes {
+		cut := maxErrorMessageBytes
+		for cut > 0 && !utf8.RuneStart(out[cut]) {
+			cut--
+		}
+		out = out[:cut]
+	}
+	return out
 }
 
 // APIError represents a non-2xx JSON error response from the Waffle
@@ -160,6 +373,7 @@ func translateError(statusCode int, respBody []byte) error {
 	if json.Unmarshal(respBody, &eb) == nil && eb.Error != "" {
 		msg = eb.Error
 	}
+	msg = sanitizeMessage(msg)
 	apiErr := &APIError{StatusCode: statusCode, Message: msg}
 	if statusCode == http.StatusForbidden {
 		if m := permissionErrorPattern.FindStringSubmatch(msg); m != nil {
@@ -178,6 +392,9 @@ func translateError(statusCode int, respBody []byte) error {
 // Content-Type, non-2xx -> *APIError translation, and idempotency-key /
 // query-param injection via the caller-supplied headers/query.
 func (c *Client) doJSON(ctx context.Context, method, path string, query url.Values, headers map[string]string, body any, out any) error {
+	if c.baseURLErr != nil {
+		return c.baseURLErr
+	}
 	var reqBody io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -199,8 +416,8 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.key() != "" {
+		req.Header.Set("Authorization", "Bearer "+c.key())
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -212,13 +429,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readResponse(resp)
 	if err != nil {
-		return fmt.Errorf("waffle: reading response body: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return translateError(resp.StatusCode, respBody)
+		return err
 	}
 
 	if out != nil && len(respBody) > 0 {
@@ -234,12 +447,15 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 // doJSON does. Used by the PDF receipt endpoints, whose success
 // response is `application/pdf` bytes, not JSON.
 func (c *Client) doRaw(ctx context.Context, method, path string) ([]byte, error) {
+	if c.baseURLErr != nil {
+		return nil, c.baseURLErr
+	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("waffle: building request: %w", err)
 	}
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.key() != "" {
+		req.Header.Set("Authorization", "Bearer "+c.key())
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -248,15 +464,7 @@ func (c *Client) doRaw(ctx context.Context, method, path string) ([]byte, error)
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("waffle: reading response body: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, translateError(resp.StatusCode, respBody)
-	}
-	return respBody, nil
+	return readResponse(resp)
 }
 
 // GenerateIdempotencyKey returns a random, URL-safe, unique-enough string
@@ -264,10 +472,11 @@ func (c *Client) doRaw(ctx context.Context, method, path string) ([]byte, error)
 // CreateCharge and CreatePayout. It uses crypto/rand and never depends on
 // an external UUID library, keeping this module dependency-free.
 //
-// Idempotency keys are never generated silently by this SDK — every
-// method that requires one takes it as an explicit caller-supplied
-// parameter. Call this helper yourself when you don't have your own key
-// scheme (e.g. an internal order id) to reuse.
+// Generate ONE key per logical operation (e.g. per order) and reuse it
+// on every retry of that operation. Passing the empty string to
+// CreateCharge/CreatePayout generates a NEW key on every call, so it is
+// not safe to wrap in a retry loop: a retry after a timeout could create a
+// duplicate.
 func GenerateIdempotencyKey() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -285,6 +494,9 @@ func GenerateIdempotencyKey() string {
 // text "ok" (not JSON) on success. It returns nil on a 2xx response and a
 // wrapped *APIError otherwise.
 func (c *Client) Healthz(ctx context.Context) error {
+	if c.baseURLErr != nil {
+		return c.baseURLErr
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/healthz", nil)
 	if err != nil {
 		return fmt.Errorf("waffle: building request: %w", err)
@@ -294,14 +506,8 @@ func (c *Client) Healthz(ctx context.Context) error {
 		return fmt.Errorf("waffle: performing request: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("waffle: request failed: %w", &APIError{
-			StatusCode: resp.StatusCode,
-			Message:    string(body),
-		})
-	}
-	return nil
+	_, err = readResponse(resp)
+	return err
 }
 
 // --- Charges ---------------------------------------------------------------
@@ -406,8 +612,12 @@ type ChargeFeeRule struct {
 // stays required by the contract, but this SDK auto-generates one (via
 // GenerateIdempotencyKey) when idempotencyKey is the empty string, so
 // callers who don't care about pinning a specific key don't have to
-// call the helper themselves. Pass your own (e.g. an internal order id)
-// when you want retry-safety across separate calls.
+// call the helper themselves.
+//
+// WARNING: an empty key generates a NEW key on every call, so a call with
+// "" is not safe to wrap in a retry loop (a retry after a timeout can
+// create a duplicate charge). Generate one key per logical operation (or
+// use your own, e.g. an internal order id) and reuse it on every retry.
 //
 // Possible errors (via errors.As(err, &apiErr)): 400 malformed
 // amount/currency; 422 no gateway/fee rule for the auto-routed provider,
@@ -658,7 +868,9 @@ type Payout struct {
 // CreatePayout calls POST /v1/payouts. idempotencyKey is sent as the
 // Idempotency-Key header, same semantics as CreateCharge: it stays
 // required by the contract, but this SDK auto-generates one when
-// idempotencyKey is the empty string.
+// idempotencyKey is the empty string. As with CreateCharge, an empty key
+// yields a NEW key per call and is not safe to retry; reuse one key per
+// logical payout across retries.
 //
 // A 422 with body {"error":"insufficient available balance"} is returned
 // specifically for payout.ErrInsufficientBalance — surfaced here as an

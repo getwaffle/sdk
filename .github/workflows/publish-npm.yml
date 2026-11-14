@@ -16,15 +16,21 @@ on:
       # package whose version is already on npm.
       - ".github/workflows/publish-npm.yml"
 
+permissions: {}
+
 jobs:
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       typescript: ${{ steps.f.outputs.typescript }}
       mcp: ${{ steps.f.outputs.mcp }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         id: f
         with:
           filters: |
@@ -39,6 +45,12 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.typescript == 'true' || needs.changes.outputs.mcp == 'true' }}
     runs-on: ubuntu-latest
+    # Gate on the npm-publish environment (configure required reviewers in
+    # repo settings). id-token: write is needed for npm provenance.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       # Publish the SDK before mcp (mcp's published dependency points at it),
       # and let a failure in one not cancel the other.
@@ -51,9 +63,11 @@ jobs:
           - dir: mcp
             enabled: ${{ needs.changes.outputs.mcp }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
         if: matrix.enabled == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: matrix.enabled == 'true'
         with:
           node-version: 22
@@ -76,9 +90,10 @@ jobs:
         working-directory: ${{ matrix.dir }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          MATRIX_DIR: ${{ matrix.dir }}
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::warning title=npm publish skipped::NPM_TOKEN repo secret is not set; ${{ matrix.dir }} was built but not published."
+            echo "::warning title=npm publish skipped::NPM_TOKEN repo secret is not set; $MATRIX_DIR was built but not published."
             exit 0
           fi
           name=$(node -p "require('./package.json').name")
@@ -90,8 +105,8 @@ jobs:
           fi
           # mcp links the SDK as file:../typescript for local development; a
           # published package must depend on the registry version instead.
-          if [ "${{ matrix.dir }}" = "mcp" ]; then
+          if [ "$MATRIX_DIR" = "mcp" ]; then
             sdk_version=$(node -p "require('../typescript/package.json').version")
             npm pkg set "dependencies.@getwaffle/sdk=^$sdk_version"
           fi
-          npm publish --access public
+          npm publish --access public --provenance

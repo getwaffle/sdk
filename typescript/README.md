@@ -10,6 +10,12 @@ Node-only HTTP client.
 npm install @getwaffle/sdk
 ```
 
+> **Warning: never put a secret key in browser code.** Keys starting with
+> `sk_live_` or `sk_test_` are server-side secrets. Do not bundle them into
+> a web page, mobile app, or any client-side build (including `NEXT_PUBLIC_*`
+> / `VITE_*` env vars). Anyone who loads the page can read them and move
+> money from your account. Use this SDK from your backend only.
+
 ## Field naming
 
 The Waffle wire format is snake_case JSON. This SDK exposes
@@ -28,6 +34,51 @@ const client = new WaffleClient({
   // Uses https://api.getwaffle.id (production) by default.
 });
 ```
+
+## Client options, timeouts and transport safety
+
+```ts
+const client = new WaffleClient({
+  apiKey: process.env.WAFFLE_API_KEY!,
+  baseUrl: "https://api.getwaffle.id", // optional
+  timeoutMs: 30_000,                   // optional, default 30000
+  signal: abortController.signal,      // optional, combined with the timeout
+  fetch: customFetch,                  // optional
+});
+```
+
+- **`timeoutMs`** (default 30000, must be a positive finite number) applies to
+  every request, including `healthz()` and receipt downloads, and covers
+  reading the body. On expiry a `WaffleTimeoutError` (a `WaffleError`,
+  `status` 0) is thrown. **A POST that times out has an UNKNOWN outcome:** the
+  server may already have created the charge or payout. Never assume it
+  failed and never retry with a new key; retry with the **same** idempotency
+  key (which returns the original resource if it was created), or look the
+  resource up. Generate and persist the key yourself before the call if you
+  need to do this after a crash.
+- **`signal`** is an optional `AbortSignal`; aborting it rejects with the
+  abort error (not a timeout error).
+- **Redirects are never followed** (`redirect: "error"` on every request), so
+  the `Authorization` header and POST bodies cannot be forwarded elsewhere by
+  a redirect. A redirecting server surfaces as a thrown fetch error.
+- **`baseUrl`** must be `https://`; plain `http://` is accepted only for
+  `localhost`, `127.0.0.1` and `[::1]`. Userinfo, query strings, fragments,
+  empty hosts and any path (other than `/`) are rejected; it is normalised
+  to `scheme://host[:port]`. Behind a gateway path prefix, use a custom
+  `fetch` that rewrites the URL instead. An invalid
+  value throws from the constructor. A custom `fetch` is still supported.
+- **Response size caps:** JSON/text bodies are limited to 8 MiB and receipt
+  PDFs to 16 MiB (`Content-Length` is checked first, then enforced while
+  streaming). Exceeding it throws `WaffleResponseTooLargeError`.
+- **Local validation:** `amount` must be a positive safe integer
+  (`createCharge`, `createPayout`, `calculateFee`), and a supplied
+  idempotency key must be 1-255 characters of `[A-Za-z0-9._:-]`; otherwise a
+  `WaffleValidationError` is thrown before any request is sent.
+- **Secret hygiene:** the API key lives in a private field.
+  `JSON.stringify(client)`, `console.log(client)` and `util.inspect` show only
+  `sk_live_****` / `sk_test_****`. Server-provided error messages are
+  truncated to 512 characters and control/format characters are replaced with
+  spaces.
 
 ## Scopes and presets
 
@@ -134,7 +185,7 @@ import { verifyWebhook, WebhookVerificationError } from "@getwaffle/sdk";
 app.post("/webhooks/waffle", express.raw({ type: "application/json" }), async (req, res) => {
   try {
     const event = await verifyWebhook(req.body, req.headers, process.env.WAFFLE_WEBHOOK_SECRET!);
-    // event.deliveryId (X-Waffle-Delivery) is stable across retries: dedupe on it.
+    // Dedupe on event.eventId (signed, inside the body), not event.deliveryId.
     if (event.event === "charge.paid") await fulfil(event.chargeId!, event.amount!, event.currency!);
     res.sendStatus(200);
   } catch (err) {
@@ -154,10 +205,19 @@ app.post("/webhooks/waffle", express.raw({ type: "application/json" }), async (r
 `X-Waffle-Signature-V2` (`t=<unix>,v1=<hex>`, HMAC-SHA256 over
 `"<t>.<body>"`) is verified in constant time with a 300 s tolerance in
 both directions. The legacy `X-Waffle-Signature` header is accepted
-**only when V2 is absent** and has **no replay protection**; pass
-`{ allowLegacy: false }` to refuse it. Other options:
-`{ toleranceSeconds, now }` (`now` returns unix seconds). `event.raw`
-holds the full decoded snake_case payload. Respond 2xx only after the
+**only when V2 is absent and you opt in with `{ allowLegacy: true }`**. It
+is **rejected by default**: Waffle sends both headers on every delivery, so
+if legacy were accepted an attacker could strip the V2 header and replay a
+captured legacy-only request forever. Setting `allowLegacy: true` disables
+replay protection; do not use it unless you must support a sender that
+cannot produce V2. Other options:
+`{ toleranceSeconds, now }` (`now` returns unix seconds). `toleranceSeconds` must be a finite number >= 0, otherwise a `TypeError` is thrown (fail closed). `event.raw`
+holds the full decoded snake_case payload.
+
+`event.deliveryId` comes from the **unsigned** `X-Waffle-Delivery` header,
+so it can be altered in transit. The **signed** `event.eventId` (the
+`event_id` field in the body) is the safer key for de-duplicating
+deliveries. Respond 2xx only after the
 event is durably recorded; anything else is retried with the same
 delivery id.
 

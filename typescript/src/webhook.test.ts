@@ -91,7 +91,7 @@ describe("verifyWebhook", () => {
     ["duplicate t", BODY1, SECRET, { [V2]: `t=${T},t=${T},v1=${B1_V2}` }, "malformed_header"],
     ["v1 not hex", BODY1, SECRET, { [V2]: `t=${T},v1=zzzz` }, "malformed_header"],
     ["v1 short", BODY1, SECRET, { [V2]: `t=${T},v1=abcd` }, "malformed_header"],
-    ["legacy without prefix", BODY1, SECRET, { "X-Waffle-Signature": B1_LEGACY }, "malformed_header"],
+    ["legacy without prefix", BODY1, SECRET, { "X-Waffle-Signature": B1_LEGACY }, "malformed_header", { allowLegacy: true }],
     ["invalid V2 never falls back to legacy", BODY1, SECRET, { [V2]: `t=${T},v1=${B1_V2_OTHER}`, "X-Waffle-Signature": `sha256=${B1_LEGACY}` }, "signature_mismatch"],
   ];
   it.each(failures)("rejects: %s", async (_n, body, secret, headers, want, opts) => {
@@ -115,13 +115,40 @@ describe("verifyWebhook", () => {
     await verifyWebhook(BODY1, headers, SECRET, { now });
   });
 
-  it("falls back to legacy only when V2 is absent (no replay protection)", async () => {
+  it("with allowLegacy:true, falls back to legacy only when V2 is absent (no replay protection)", async () => {
     const h = { "x-waffle-signature": `sha256=${B1_LEGACY}`, "X-Waffle-Delivery": "abc" };
-    const ev = await verifyWebhook(BODY1, h, SECRET, { now: () => 1 });
+    const ev = await verifyWebhook(BODY1, h, SECRET, { now: () => 1, allowLegacy: true });
     expect(ev.event).toBe("charge.paid");
     expect(ev.deliveryId).toBe("abc");
-    expect(await reason(verifyWebhook(BODY1 + " ", h, SECRET))).toBe("signature_mismatch");
-    expect(await reason(verifyWebhook(BODY1, h, OTHER_SECRET))).toBe("signature_mismatch");
+    expect(await reason(verifyWebhook(BODY1 + " ", h, SECRET, { allowLegacy: true }))).toBe("signature_mismatch");
+    expect(await reason(verifyWebhook(BODY1, h, OTHER_SECRET, { allowLegacy: true }))).toBe("signature_mismatch");
+  });
+
+  it("rejects a legacy-only delivery by default (replay protection cannot be stripped)", async () => {
+    const h = { "X-Waffle-Signature": `sha256=${B1_LEGACY}` };
+    expect(await reason(verifyWebhook(BODY1, h, SECRET, { now }))).toBe("missing_signature");
+    expect(await reason(verifyWebhook(BODY1, h, SECRET, { now, allowLegacy: false }))).toBe("missing_signature");
+  });
+
+  it("accepts a V2 delivery by default and rejects it outside tolerance", async () => {
+    const ev = await verifyWebhook(BODY1, { [V2]: `t=${T},v1=${B1_V2}` }, SECRET, { now });
+    expect(ev.event).toBe("charge.paid");
+    expect(await reason(verifyWebhook(BODY1, { [V2]: `t=${T - 301},v1=${B1_OLD301}` }, SECRET, { now }))).toBe("timestamp_out_of_tolerance");
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1, "300" as unknown as number])(
+    "fails closed on invalid toleranceSeconds %s",
+    async (toleranceSeconds) => {
+      const stale = { [V2]: `t=${T - 99999},v1=${B1_V2}` };
+      await expect(verifyWebhook(BODY1, stale, SECRET, { now, toleranceSeconds })).rejects.toBeInstanceOf(TypeError);
+    },
+  );
+
+  it("accepts toleranceSeconds 0 only for the exact second and rejects non-finite now()", async () => {
+    await verifyWebhook(BODY1, { [V2]: `t=${T},v1=${B1_V2}` }, SECRET, { now, toleranceSeconds: 0 });
+    await expect(
+      verifyWebhook(BODY1, { [V2]: `t=${T},v1=${B1_V2}` }, SECRET, { now: () => NaN }),
+    ).rejects.toBeInstanceOf(TypeError);
   });
 
   it("reports invalid_json for validly signed non-object bodies", async () => {

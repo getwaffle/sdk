@@ -6,11 +6,54 @@ every PHP install). No heavy HTTP framework dependency — requests go
 through PHP's built-in curl extension via a small injectable `Transport`
 interface (useful for tests).
 
+PHP 8.1 is end-of-life upstream. The package still installs on `>=8.1`,
+but **PHP 8.2 or newer is recommended** — among other things, the
+`#[\SensitiveParameter]` attributes this SDK uses to keep your API key
+out of exception stack traces only take effect on PHP 8.2+.
+
 ## Install
 
 ```bash
 composer require waffle/sdk
 ```
+
+## Secure defaults
+
+- **Base URL.** The API key is sent to the base URL on every call, so the
+  `Client` constructor validates it: `https://` is required (plain
+  `http://` is accepted only for `localhost`, `127.0.0.1` and `[::1]`),
+  it must have a host, and it must not contain credentials
+  (`user:pass@`), a query string, a fragment or a path (only `""` or
+  `/` is accepted). It is normalised to `scheme://host[:port]`. Anything else throws `InvalidArgumentException`.
+- **API key.** Must be visible ASCII: whitespace, CR/LF/NUL and other
+  control characters are rejected. Keep it out of source control and
+  load it from the environment or a secret manager.
+- **No leaks via debugging.** `var_dump()`/`print_r()` of a `Client` show
+  only a redacted key (`sk_test_****`), and a `Client` cannot be
+  serialized (`serialize()` throws `LogicException`), so it cannot end up
+  in a session or cache by accident. `$apiKey` and the transport's
+  `$headers` are marked `#[\SensitiveParameter]`; on PHP 8.2+ they are
+  replaced by `SensitiveParameterValue` in stack traces. If you set
+  `zend.exception_ignore_args=On` in production you get the same on 8.1.
+- **Transport.** The default curl transport verifies TLS (peer and host),
+  never follows redirects, allows only HTTPS (HTTP only for a loopback
+  base URL), keeps the 30 s timeouts, and aborts any response larger than
+  8 MiB (16 MiB for receipt PDFs) with a `WaffleException`.
+- **Idempotency keys** you supply must match `[A-Za-z0-9._:-]{1,255}`
+  (`IdempotencyKey::generate()` output always does); anything else throws
+  `InvalidArgumentException` before a request is made.
+- **Error messages** built from a server response are made valid UTF-8,
+  have control/format characters (bidi overrides, zero-width, BOM,
+  U+2028/2029) replaced with spaces, and are capped at 512 bytes.
+
+### Compatibility notes
+
+- Caller-supplied idempotency keys are restricted to
+  `/^[A-Za-z0-9._:-]{1,255}$/`. Order ids containing `/`, `#`, `@`, `+`,
+  spaces or non-ASCII characters must be mapped or hashed first.
+- A `Client` can no longer be serialized. Queued jobs or sessions that
+  serialize a client will break; construct the client inside the job.
+- A base URL with a path prefix is no longer accepted.
 
 ## Field naming
 
@@ -156,7 +199,9 @@ try {
     exit;
 }
 
-// $event->deliveryId (X-Waffle-Delivery) is stable across retries: dedupe on it.
+// Dedupe on the SIGNED event id in the body ($event->eventId): it is covered
+// by the signature. $event->deliveryId (the X-Waffle-Delivery header) is NOT
+// signed, so a replayer or intermediary can change it; use it for logging only.
 if ($event->event === 'charge.paid') {
     fulfil($event->chargeId, $event->amount, $event->currency); // $amount is int minor units
 }
@@ -165,9 +210,14 @@ http_response_code(200);
 
 `X-Waffle-Signature-V2` (`t=<unix>,v1=<hex>`, HMAC-SHA256 over
 `"<t>.<body>"`) is verified with `hash_equals` and a 300 s tolerance in
-both directions. The legacy `X-Waffle-Signature` header is accepted
-**only when V2 is absent** and has **no replay protection**; pass
-`allowLegacy: false` to refuse it. Other named arguments:
+both directions. The server sends **both** `X-Waffle-Signature-V2` and the
+legacy `X-Waffle-Signature` on every delivery, so a delivery without V2
+is rejected by default (`MissingSignature`). `allowLegacy` defaults to
+`false`; pass `allowLegacy: true` only if you must accept legacy-only
+senders — doing so **disables replay protection**, because an attacker
+can strip V2 from a captured delivery and replay the legacy-only copy
+forever. A present-but-invalid V2 header never falls back to legacy.
+Other named arguments:
 `toleranceSeconds`, `now` (a callable returning unix seconds).
 `$event->raw` holds the full decoded snake_case payload. Respond 2xx
 only after the event is durably recorded; anything else is retried with
@@ -398,9 +448,13 @@ use Waffle\Http\TransportResponse;
 
 final class MyTransport implements Transport
 {
-    public function send(string $method, string $url, array $headers, ?string $body): TransportResponse
-    {
-        // ...
+    public function send(
+        string $method,
+        string $url,
+        #[\SensitiveParameter] array $headers, // carries the Authorization bearer key
+        ?string $body,
+    ): TransportResponse {
+        // ... never log $headers; do not follow redirects (they would forward the key)
     }
 }
 

@@ -111,7 +111,7 @@ func TestVerifyWebhookFailures(t *testing.T) {
 		{"malformed: duplicate t", whBody1, whSecret, whHeaders("X-Waffle-Signature-V2", "t=1767323045,t=1767323045,v1="+whBody1V2), nil, WebhookMalformedHeader},
 		{"malformed: v1 not hex", whBody1, whSecret, whHeaders("X-Waffle-Signature-V2", "t=1767323045,v1=zzzz"), nil, WebhookMalformedHeader},
 		{"malformed: v1 short", whBody1, whSecret, whHeaders("X-Waffle-Signature-V2", "t=1767323045,v1=abcd"), nil, WebhookMalformedHeader},
-		{"malformed legacy prefix", whBody1, whSecret, whHeaders("X-Waffle-Signature", whBody1Legacy), nil, WebhookMalformedHeader},
+		{"malformed legacy prefix", whBody1, whSecret, whHeaders("X-Waffle-Signature", whBody1Legacy), []WebhookOption{WithWebhookAllowLegacy(true)}, WebhookMalformedHeader},
 		{"invalid V2 never falls back to legacy", whBody1, whSecret, whHeaders("X-Waffle-Signature-V2", "t=1767323045,v1="+whBody1V2Other, "X-Waffle-Signature", "sha256="+whBody1Legacy), nil, WebhookSignatureMismatch},
 	}
 	for _, tc := range tests {
@@ -166,16 +166,19 @@ func TestVerifyWebhookHeaderLeniency(t *testing.T) {
 func TestVerifyWebhookLegacy(t *testing.T) {
 	h := whHeaders("x-waffle-signature", "sha256="+whBody1Legacy)
 
-	// Allowed by default; the legacy path has no timestamp check, so any clock passes.
-	ev, err := VerifyWebhook([]byte(whBody1), h, whSecret, WithWebhookClock(func() time.Time { return time.Unix(1, 0) }))
+	// Rejected by default (replay protection); opt-in accepts it, and the
+	// legacy path has no timestamp check, so any clock passes.
+	_, err := VerifyWebhook([]byte(whBody1), h, whSecret)
+	wantReason(t, err, WebhookMissingSignature)
+	ev, err := VerifyWebhook([]byte(whBody1), h, whSecret, WithWebhookAllowLegacy(true), WithWebhookClock(func() time.Time { return time.Unix(1, 0) }))
 	if err != nil || ev.Event != "charge.paid" {
-		t.Fatalf("legacy default: ev=%+v err=%v", ev, err)
+		t.Fatalf("legacy opt-in: ev=%+v err=%v", ev, err)
 	}
 	_, err = VerifyWebhook([]byte(whBody1), h, whSecret, WithWebhookAllowLegacy(false))
 	wantReason(t, err, WebhookMissingSignature)
-	_, err = VerifyWebhook([]byte(whBody1+" "), h, whSecret)
+	_, err = VerifyWebhook([]byte(whBody1+" "), h, whSecret, WithWebhookAllowLegacy(true))
 	wantReason(t, err, WebhookSignatureMismatch)
-	_, err = VerifyWebhook([]byte(whBody1), h, whOtherSecret)
+	_, err = VerifyWebhook([]byte(whBody1), h, whOtherSecret, WithWebhookAllowLegacy(true))
 	wantReason(t, err, WebhookSignatureMismatch)
 }
 

@@ -27,7 +27,7 @@ final class FakeTransport implements Transport
         $this->response = $response;
     }
 
-    public function send(string $method, string $url, array $headers, ?string $body): TransportResponse
+    public function send(string $method, string $url, #[\SensitiveParameter] array $headers, ?string $body): TransportResponse
     {
         $this->lastMethod = $method;
         $this->lastUrl = $url;

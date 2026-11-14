@@ -41,11 +41,16 @@ waffle charges create --amount 50000 --channel qris
 Already hold a key? Skip login entirely:
 
 ```sh
-waffle configure --api-key wf_sandbox_...
-# or per-invocation:
+printf %s "$WAFFLE_KEY" | waffle configure --api-key-stdin   # store once
+# or per-invocation, from the environment or stdin:
 WAFFLE_API_KEY=wf_sandbox_... waffle balance
-waffle --api-key wf_sandbox_... balance
+printf %s "$WAFFLE_KEY" | waffle --api-key-stdin balance
 ```
+
+`waffle login` (no flags) prompts for email and password with no echo.
+Avoid `--api-key <key>`: a command-line argument is visible to other
+users in `ps` and is saved in your shell history. It still works but
+prints a warning on stderr.
 
 ## The two credentials (never interchangeable)
 
@@ -55,12 +60,25 @@ money-moving surface accepts. The CLI keeps them strictly separate:
 
 | Credential | Source | Authorizes |
 |---|---|---|
-| API key | `--api-key` flag > `WAFFLE_API_KEY` env > stored by `login`/`keys create`/`configure` | `balance`, `charges`, `bank-accounts`, `payouts`, `keys whoami` |
+| API key | `--api-key-stdin` / `--api-key` > `WAFFLE_API_KEY` env > stored by `login`/`keys create`/`configure` | `balance`, `charges`, `bank-accounts`, `payouts`, `keys whoami` |
 | Session token | stored by `login` | `whoami`, `keys list/create/revoke` (`/v1/merchants/me/*` only) |
 
 Precedence for the base URL: `--base-url` flag > `WAFFLE_BASE_URL`
 env > stored profile value > `https://api.getwaffle.id` (the SDK
-default, production).
+default, production). The base URL must be an origin only (https, or
+http for loopback): no path, query, or fragment.
+
+**No credential is ever sent to a host that only the environment
+names.** A project file (`.envrc`, `.env`, a Makefile, a CI variable)
+can set `WAFFLE_BASE_URL`, so when the base URL comes only from that
+variable and is neither the default API host nor loopback, the CLI
+attaches nothing (stored key, session token, `WAFFLE_API_KEY`,
+`--api-key`, `--api-key-stdin`, login password) and fails with an error
+asking you to pass `--base-url <url>` explicitly. Trusted sources: the
+default host, a loopback host, the `--base-url` flag, and the profile's
+own stored base URL. For an env-supplied loopback URL, a *stored* key is
+also refused (a local port squatter could capture it); a key you pass
+explicitly is allowed there.
 
 ## Scopes and presets
 
@@ -98,11 +116,18 @@ KYC and withdrawal-account management are **dashboard-only by design** —
 there is no `bank-accounts register` command and never will be; see
 "What the CLI does not do" below.
 
+## Receipts
+
+`charges receipt` / `payouts receipt` create the output file with mode
+`0600`, never follow a symlink, and refuse to overwrite an existing file
+unless you pass `--force`. Receipts over 16 MiB are rejected.
+
 ## Config file
 
 `$XDG_CONFIG_HOME/waffle/config.json` (default
-`~/.config/waffle/config.json`), mode `0600`, dir `0700`, written
-atomically. Same plaintext-at-rest posture as the Stripe CLI, `gh`, and
+`~/.config/waffle/config.json`), mode `0600`, dir `0700` (tightened if it is yours and
+loosely permissioned), written atomically via an exclusive temp file,
+fsync, and rename. Same plaintext-at-rest posture as the Stripe CLI, `gh`, and
 aws-cli; an OS-keychain integration is a possible future enhancement,
 deliberately not built now. Named profiles (`--profile prod`) are just
 a top-level map — no separate credential-store subsystem.
@@ -113,10 +138,10 @@ destroy stored credentials.
 ## Commands
 
 ```
-waffle login [--email x] [--api-key wf_...] [--open]   # session flow, or store a key directly
+waffle login [--email x] [--api-key-stdin] [--open]    # session flow, or store a key read from stdin
 waffle logout                                          # clears session + key
 waffle whoami                                          # GET /v1/merchants/me/profile (dashboard session)
-waffle configure --api-key k [--base-url u] [--dashboard-url u]
+waffle configure [--api-key-stdin] [--base-url u] [--dashboard-url u]
 
 waffle keys list                                       # session-authenticated
 waffle keys create [--name label] [--no-store]         # sandbox-only (live keys are admin-issued)
@@ -136,7 +161,7 @@ waffle charges calculate-fee --amount 100000 [--channel ...] [--va-bank ...]  # 
 waffle charges get <charge-id>                          # scope charges:read
 waffle charges list [--status ...] [--limit N] [--starting-after ID]
     [--created-gte ...] [--created-lte ...] [--all]      # scope charges:read
-waffle charges receipt <charge-id> [--output file.pdf]  # scope charges:read; 409 if not paid
+waffle charges receipt <charge-id> [--output file.pdf] [--force]  # scope charges:read; 409 if not paid
 
 waffle bank-accounts get                                # scope payouts:read; masked, read-only
                                                           # (registration is dashboard-only, no CLI command)
@@ -145,13 +170,13 @@ waffle payouts create --bank-account-id <uuid> --amount 20000 [--currency IDR]
     [--idempotency-key ...]                               # scope payouts:write
 waffle payouts get <payout-id>                           # scope payouts:read
 waffle payouts list [--status ...] [--limit N] [--starting-after ID] [--all]  # scope payouts:read
-waffle payouts receipt <payout-id> [--output file.pdf]   # scope payouts:read; 409 if not completed
+waffle payouts receipt <payout-id> [--output file.pdf] [--force]   # scope payouts:read; 409 if not completed
 
 waffle healthz                                         # no auth
 
 waffle webhooks verify --body-file f --header 'Name: v' ...  # offline signature check, secret from $WAFFLE_WEBHOOK_SECRET
 
-Global flags: --api-key, --base-url, --json, --profile <name>
+Global flags: --api-key-stdin, --api-key (insecure), --base-url, --json, --profile <name>
 ```
 
 ### Debugging webhook signatures
