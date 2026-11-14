@@ -73,8 +73,9 @@ final class Client
      *   The API key is sent to this URL on every call, so it must be
      *   `https://` (plain `http://` is accepted only for `localhost`,
      *   `127.0.0.1` and `[::1]`), must have a host, and must not carry
-     *   userinfo, a query string or a fragment. A path prefix is allowed;
-     *   trailing slashes are trimmed.
+     *   userinfo, a query string, a fragment or a path (only an empty path
+     *   or a single `/` is accepted). It is normalised to
+     *   `scheme://host[:port]`.
      * @param Transport|null $transport override the HTTP transport
      *   (defaults to {@see CurlTransport}); primarily useful for tests.
      * @throws \InvalidArgumentException when `$apiKey` or `$baseUrl` is invalid.
@@ -624,7 +625,7 @@ final class Client
 
     /**
      * Validates the base URL (the API key is sent to it on every call) and
-     * returns it with trailing slashes trimmed.
+     * returns it normalised to `scheme://host[:port]`.
      *
      * @throws \InvalidArgumentException
      */
@@ -667,13 +668,30 @@ final class Client
             throw $fail('must use https (plain http is allowed only for localhost, 127.0.0.1 and [::1])');
         }
 
-        return rtrim($baseUrl, '/');
+        $path = (string) ($parts['path'] ?? '');
+        if ($path !== '' && $path !== '/') {
+            throw $fail('must not contain a path');
+        }
+
+        return $scheme . '://' . $host . (isset($parts['port']) ? ':' . $parts['port'] : '');
     }
 
-    /** Strips control characters and caps the length of server-controlled text. */
+    /**
+     * Makes server-controlled text safe to put in an exception message:
+     * invalid UTF-8 is replaced, control/format characters (incl. bidi
+     * overrides, zero-width, BOM) and U+2028/2029 become spaces, and the
+     * result is capped at 512 bytes on a character boundary.
+     */
     private static function sanitizeMessage(string $message): string
     {
-        $message = (string) preg_replace('/[\x00-\x1F\x7F]/', ' ', $message);
+        if (function_exists('mb_convert_encoding')) {
+            $message = mb_convert_encoding($message, 'UTF-8', 'UTF-8');
+        } else {
+            $message = (string) preg_replace('/[^\x09\x0A\x0D\x20-\x7E]+/', '?', $message);
+        }
+        $clean = preg_replace('/[\p{Cc}\p{Cf}\x{2028}\x{2029}]/u', ' ', $message);
+        $message = $clean ?? '';
+
         if (strlen($message) > self::MAX_ERROR_MESSAGE_LENGTH) {
             $message = function_exists('mb_strcut')
                 ? mb_strcut($message, 0, self::MAX_ERROR_MESSAGE_LENGTH, 'UTF-8')

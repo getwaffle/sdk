@@ -26,7 +26,6 @@ final class ClientSecurityTest extends TestCase
     {
         yield 'default host' => ['https://api.getwaffle.id'];
         yield 'trailing slash' => ['https://api.getwaffle.id/'];
-        yield 'path prefix' => ['https://gateway.example.com/waffle'];
         yield 'port' => ['https://api.example.com:8443'];
         yield 'uppercase scheme' => ['HTTPS://api.getwaffle.id'];
         yield 'http localhost' => ['http://localhost:8080'];
@@ -62,6 +61,8 @@ final class ClientSecurityTest extends TestCase
         yield 'empty string' => [''];
         yield 'whitespace' => ['https://api.getwaffle.id /x'];
         yield 'newline' => ["https://api.getwaffle.id\r\nX-Evil: 1"];
+        yield 'path prefix' => ['https://gateway.example.com/waffle'];
+        yield 'multiple slashes' => ['https://api.getwaffle.id///'];
         yield 'backslash' => ['https://evil.example\\@api.getwaffle.id'];
     }
 
@@ -75,7 +76,7 @@ final class ClientSecurityTest extends TestCase
     public function testBaseUrlTrailingSlashesAreTrimmed(): void
     {
         $transport = self::fake(200, '{"merchant_id":"m","business_name":"b","mode":"sandbox","preset":"full","scopes":[]}');
-        $client = new Client(self::API_KEY, 'https://api.getwaffle.id///', $transport);
+        $client = new Client(self::API_KEY, 'https://API.getwaffle.id/', $transport);
 
         $client->whoAmI();
 
@@ -230,6 +231,33 @@ final class ClientSecurityTest extends TestCase
             self::assertLessThanOrEqual(512, strlen($e->getMessage()));
             self::assertSame(0, preg_match('/[\x00-\x1F\x7F]/', $e->getMessage()));
             self::assertStringStartsWith('line1  line2 ', $e->getMessage());
+        }
+    }
+
+    public function testBidiOverridesAndLineSeparatorsAreStripped(): void
+    {
+        $body = json_encode(['error' => "a\u{202E}b\u{2028}c\u{200B}d\u{FEFF}e\u{2066}f"], JSON_THROW_ON_ERROR);
+        $client = new Client(self::API_KEY, 'https://api.getwaffle.id', self::fake(400, $body));
+
+        try {
+            $client->whoAmI();
+            self::fail('expected WaffleApiException');
+        } catch (WaffleApiException $e) {
+            self::assertSame('a b c d e f', $e->getMessage());
+        }
+    }
+
+    public function testInvalidUtf8AndMultibyteCutAreHandled(): void
+    {
+        $body = "bad\xFF\xFEbytes" . str_repeat("\u{20AC}", 400);
+        $client = new Client(self::API_KEY, 'https://api.getwaffle.id', self::fake(502, $body));
+
+        try {
+            $client->whoAmI();
+            self::fail('expected WaffleApiException');
+        } catch (WaffleApiException $e) {
+            self::assertLessThanOrEqual(512, strlen($e->getMessage()));
+            self::assertSame(1, preg_match('//u', $e->getMessage()));
         }
     }
 

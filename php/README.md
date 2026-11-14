@@ -23,8 +23,8 @@ composer require waffle/sdk
   `Client` constructor validates it: `https://` is required (plain
   `http://` is accepted only for `localhost`, `127.0.0.1` and `[::1]`),
   it must have a host, and it must not contain credentials
-  (`user:pass@`), a query string or a fragment. Trailing slashes are
-  trimmed. Anything else throws `InvalidArgumentException`.
+  (`user:pass@`), a query string, a fragment or a path (only `""` or
+  `/` is accepted). It is normalised to `scheme://host[:port]`. Anything else throws `InvalidArgumentException`.
 - **API key.** Must be visible ASCII: whitespace, CR/LF/NUL and other
   control characters are rejected. Keep it out of source control and
   load it from the environment or a secret manager.
@@ -42,8 +42,18 @@ composer require waffle/sdk
 - **Idempotency keys** you supply must match `[A-Za-z0-9._:-]{1,255}`
   (`IdempotencyKey::generate()` output always does); anything else throws
   `InvalidArgumentException` before a request is made.
-- **Error messages** built from a non-JSON response body are capped at
-  512 characters and have control characters replaced with spaces.
+- **Error messages** built from a server response are made valid UTF-8,
+  have control/format characters (bidi overrides, zero-width, BOM,
+  U+2028/2029) replaced with spaces, and are capped at 512 bytes.
+
+### Compatibility notes
+
+- Caller-supplied idempotency keys are restricted to
+  `/^[A-Za-z0-9._:-]{1,255}$/`. Order ids containing `/`, `#`, `@`, `+`,
+  spaces or non-ASCII characters must be mapped or hashed first.
+- A `Client` can no longer be serialized. Queued jobs or sessions that
+  serialize a client will break; construct the client inside the job.
+- A base URL with a path prefix is no longer accepted.
 
 ## Field naming
 
