@@ -586,7 +586,7 @@ export async function createServer(options: WaffleMcpServerOptions): Promise<Mcp
             currency: params.currency,
             ...(params.description !== undefined ? { description: params.description } : {}),
             ...(params.customerRef !== undefined ? { customerRef: params.customerRef } : {}),
-            ...(params.returnUrl !== undefined ? { returnUrl: params.returnUrl } : {}),
+            ...(params.returnUrl !== undefined ? { returnUrl: new URL(params.returnUrl).href } : {}),
             ...(params.channel !== undefined ? { channel: params.channel } : {}),
             ...(params.vaBank !== undefined ? { vaBank: params.vaBank } : {}),
             ...(params.expiresInMinutes !== undefined ? { expiresInMinutes: params.expiresInMinutes } : {}),

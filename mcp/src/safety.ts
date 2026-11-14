@@ -102,6 +102,7 @@ export function parseConfig(env: Env): McpConfig {
 
 /** Why a return URL is unacceptable, or undefined when it is fine. */
 export function returnUrlProblem(value: string, allowlist: string[] | undefined): string | undefined {
+  if (/[\s\p{Cc}\p{Cf}\\]/u.test(value)) return "returnUrl must not contain whitespace, control characters or backslashes";
   let u: URL;
   try {
     u = new URL(value);
@@ -118,15 +119,24 @@ export function returnUrlProblem(value: string, allowlist: string[] | undefined)
 
 /**
  * Validates `WAFFLE_BASE_URL`: https required (plain http only for
- * localhost / 127.0.0.1 / [::1]), no userinfo, query or fragment.
- * Returns the URL with any trailing slash removed.
+ * localhost / 127.0.0.1 / [::1]), no whitespace or control characters,
+ * no userinfo, path, query or fragment. Returns the normalised
+ * `scheme://host[:port]`.
  */
 export function validateBaseUrl(raw: string): string {
+  if (/[\s\p{Cc}\p{Cf}\\]/u.test(raw)) {
+    throw new Error("waffle-mcp: WAFFLE_BASE_URL must not contain whitespace, control characters or backslashes");
+  }
   let u: URL;
   try {
     u = new URL(raw);
   } catch {
     throw new Error("waffle-mcp: WAFFLE_BASE_URL is not a valid absolute URL");
+  }
+  // Reject odd host spellings (0x7f.1, 2130706433, ...) that WHATWG silently rewrites.
+  const rawHost = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/(\[[^\]]*\]|[^/:?#@]*)/.exec(raw)?.[1];
+  if (rawHost === undefined || rawHost.toLowerCase() !== u.hostname) {
+    throw new Error("waffle-mcp: WAFFLE_BASE_URL has an unusual host spelling; write the hostname in canonical form");
   }
   const loopback = u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "[::1]";
   if (u.protocol !== "https:" && !(u.protocol === "http:" && loopback)) {
@@ -136,7 +146,10 @@ export function validateBaseUrl(raw: string): string {
   if (u.search !== "" || u.hash !== "" || raw.includes("?") || raw.includes("#")) {
     throw new Error("waffle-mcp: WAFFLE_BASE_URL must not contain a query string or fragment");
   }
-  return raw.replace(/\/+$/, "");
+  if (u.pathname !== "/" && u.pathname !== "") {
+    throw new Error("waffle-mcp: WAFFLE_BASE_URL must not contain a path");
+  }
+  return `${u.protocol}//${u.host}`;
 }
 
 // --- idempotency + spend guard -------------------------------------------
@@ -160,15 +173,26 @@ export function hashArgs(tool: string, args: unknown): string {
 
 interface KeyState {
   hash: string;
-  /** Whether this key's amount is currently counted against the session total. */
+  amount: number;
+  /** Whether `amount` is currently counted against the session total. */
   counted: boolean;
+  /** A call under this key succeeded or has an unknown outcome: the amount stays counted for good. */
+  permanent: boolean;
+  /** Calls begun and not yet settled. */
+  inflight: number;
 }
+
+/** Upper bound on remembered idempotency keys; oldest settled entries are evicted first. */
+export const MAX_TRACKED_KEYS = 10_000;
 
 /**
  * In-memory, per-process record of idempotency keys used and of the
  * cumulative amount of money-moving operations. Counted: operations that
  * succeeded and operations whose outcome is unknown (timeouts, network
  * errors, 5xx, 408/409). Not counted: definite rejections (other 4xx).
+ * An amount is counted once per key, however many concurrent or repeated
+ * calls use it, and is released only when every call for the key has
+ * settled and none succeeded or had an unknown outcome.
  */
 export class WriteGuard {
   private readonly keys = new Map<string, KeyState>();
@@ -179,9 +203,17 @@ export class WriteGuard {
     return this.total;
   }
 
+  private evict(): void {
+    if (this.keys.size < MAX_TRACKED_KEYS) return;
+    for (const [k, st] of this.keys) {
+      if (this.keys.size < MAX_TRACKED_KEYS) break;
+      if (st.inflight === 0) this.keys.delete(k);
+    }
+  }
+
   /**
    * Reserve before sending. Returns an error string when the call must be
-   * refused, otherwise a settle function to call with the outcome.
+   * refused, otherwise a settle function to call exactly once with the outcome.
    */
   begin(
     key: string,
@@ -189,34 +221,39 @@ export class WriteGuard {
     amount: number,
     sessionMax: number,
   ): { error: string } | { settle: (outcome: "ok" | "unknown" | "rejected") => void } {
-    const existing = this.keys.get(key);
-    if (existing && existing.hash !== hash) {
+    let st = this.keys.get(key);
+    if (st && st.hash !== hash) {
       return {
         error:
           "This idempotencyKey was already used in this session with different arguments. Reuse a key only to retry the exact same operation; do not send a different operation under it. If you really intend a new, different operation, ask the user first and use a new key.",
       };
     }
-    let state = existing;
-    let reserved = false;
-    if (!state) {
-      state = { hash, counted: false };
-      this.keys.set(key, state);
+    const isNew = !st;
+    if (!st) {
+      this.evict();
+      st = { hash, amount, counted: false, permanent: false, inflight: 0 };
+      this.keys.set(key, st);
     }
-    if (!state.counted) {
+    if (!st.counted) {
       if (this.total + amount > sessionMax) {
-        if (!existing) this.keys.delete(key);
+        if (isNew) this.keys.delete(key);
         return { error: `Refused: this would exceed the per-session amount limit WAFFLE_MCP_SESSION_MAX_AMOUNT (${sessionMax}). ${this.total} already counted.` };
       }
       this.total += amount;
-      state.counted = true;
-      reserved = true;
+      st.counted = true;
     }
-    const st = state;
+    st.inflight++;
+    const state = st;
+    let settled = false;
     return {
       settle: (outcome) => {
-        if (outcome === "rejected" && reserved && st.counted) {
-          this.total -= amount;
-          st.counted = false;
+        if (settled) return;
+        settled = true;
+        state.inflight--;
+        if (outcome !== "rejected") state.permanent = true;
+        if (state.inflight === 0 && !state.permanent && state.counted) {
+          this.total -= state.amount;
+          state.counted = false;
         }
       },
     };

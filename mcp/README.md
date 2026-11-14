@@ -51,12 +51,12 @@ the `command`/`args`/`env` shape is otherwise identical.)
 | Env var | Required | Default | Notes |
 | --- | --- | --- | --- |
 | `WAFFLE_API_KEY` | yes | — | Sent as `Authorization: Bearer <key>` on every request. The key's mode (`live` vs `sandbox`) is fixed **server-side** at issuance — a sandbox key can never move real money no matter what a tool call asks for. Get one from the merchant dashboard's Integrations page, or `POST /v1/merchants/register` for a fresh sandbox key. |
-| `WAFFLE_BASE_URL` | no | `https://api.getwaffle.id` | Merchant API base URL. Must be `https` (plain `http` only for `localhost`, `127.0.0.1`, `[::1]`), with no credentials, query string or fragment; otherwise the process exits with an error. |
+| `WAFFLE_BASE_URL` | no | `https://api.getwaffle.id` | Merchant API base URL. Must be `https` (plain `http` only for `localhost`, `127.0.0.1`, `[::1]`), with no credentials, path, query string or fragment (it is normalised to `scheme://host[:port]`); otherwise the process exits with an error. |
 | `WAFFLE_MCP_ENABLE_WRITES` | no | unset (off) | Set to `1` to register the money-moving tools (`waffle_create_charge`, `waffle_create_payout`). Without it they do not exist for the model, whatever the key's scopes. |
 | `WAFFLE_MCP_ALLOW_LIVE` | no | unset (off) | Set to `1` to allow the write tools when the key is a **live** key. Without it, a live key gets read-only tools only. |
 | `WAFFLE_MCP_MAX_AMOUNT` | no | `5000000` | Per-call cap, in minor units (IDR 5.000.000). Larger requests are refused before any API call. |
 | `WAFFLE_MCP_SESSION_MAX_AMOUNT` | no | `20000000` | Cumulative cap per server process, in minor units. Counts successful operations and operations with an unknown outcome (timeout, network error, 5xx, 408/409); definite 4xx rejections are not counted, and a retry with the same `idempotencyKey` is not counted twice. |
-| `WAFFLE_MCP_RETURN_URL_ALLOWLIST` | no | unset | Comma-separated hostnames. When set, `returnUrl` must be on one of them. |
+| `WAFFLE_MCP_RETURN_URL_ALLOWLIST` | no | unset | Comma-separated hostnames. When set, `returnUrl` must be on one of them. **Strongly recommended:** without it any `https` host is accepted, so a prompt-injected model could send payers to an attacker-chosen site. |
 
 Numeric and flag settings are validated at startup (flags accept only `1`/`0`;
 amounts must be positive safe integers); garbage makes the process exit
@@ -125,8 +125,8 @@ so the real controls are the env gates and amount caps above. Tool
 descriptions state the key's mode (`LIVE` / `SANDBOX`) and the active limits.
 
 Input validation: `currency` is 3 uppercase letters; `amount` a positive safe
-integer; `returnUrl` must be `https` without credentials (and on the allowlist
-if configured); `description` <= 500, `customerRef` <= 100 characters;
+integer; `returnUrl` must be `https` without credentials, whitespace, control characters or backslashes (and on the allowlist
+if configured), and is sent in its parsed form; `description` <= 500, `customerRef` <= 100 characters;
 `metadata` at most 20 keys (key <= 40, value <= 200 characters); ids, cursors
 and dates are checked by format.
 

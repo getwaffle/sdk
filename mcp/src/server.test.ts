@@ -3,7 +3,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import type { Scope } from "@getwaffle/sdk";
 import { createServer } from "./server.js";
-import { WriteGuard, parseConfig, sanitizeText, validateBaseUrl } from "./safety.js";
+import { MAX_TRACKED_KEYS, WriteGuard, parseConfig, sanitizeText, validateBaseUrl } from "./safety.js";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -506,7 +506,7 @@ describe("waffle MCP server", () => {
   it("applies the returnUrl rules", async () => {
     const env = { WAFFLE_MCP_ENABLE_WRITES: "1", WAFFLE_MCP_RETURN_URL_ALLOWLIST: "shop.example.com, other.example" };
     const { client, mockNext, toolCalls } = await connect(FULL_SCOPES, "sandbox", env);
-    const bad = ["http://shop.example.com/x", "https://user:pw@shop.example.com/x", "https://evil.example/x", "javascript:alert(1)", "not a url"];
+    const bad = ["https://shop.example.com/a\r\nX-Evil: 1", "https://s\nhop.example.com/x", "https://shop.example.com\\@evil.com", "https://shop.example.com/a b", "http://shop.example.com/x", "https://user:pw@shop.example.com/x", "https://evil.example/x", "javascript:alert(1)", "not a url"];
     for (const [i, returnUrl] of bad.entries()) {
       const r = await client.callTool({ name: "waffle_create_charge", arguments: chargeArgs({ idempotencyKey: `ret-url-bad-${i}`, returnUrl }) });
       expect(r.isError).toBe(true);
@@ -565,6 +565,7 @@ describe("safety helpers", () => {
   it("validates WAFFLE_BASE_URL", () => {
     expect(validateBaseUrl("https://api.getwaffle.id")).toBe("https://api.getwaffle.id");
     expect(validateBaseUrl("https://api.getwaffle.id/")).toBe("https://api.getwaffle.id");
+    expect(validateBaseUrl("HTTPS://API.GetWaffle.id:443/")).toBe("https://api.getwaffle.id");
     expect(validateBaseUrl("http://localhost:8080")).toBe("http://localhost:8080");
     expect(validateBaseUrl("http://127.0.0.1:8080")).toBe("http://127.0.0.1:8080");
     expect(validateBaseUrl("http://[::1]:8080")).toBe("http://[::1]:8080");
@@ -577,6 +578,12 @@ describe("safety helpers", () => {
       "https://api.getwaffle.id?",
       "nonsense",
       "http://localhost.evil.example",
+      "https://api.getwaffle.id/v1",
+      " https://a.com",
+      "https://a.com ",
+      "https://a\nb.com",
+      "https://a.com\\@evil.com",
+      "http://0x7f.1",
     ]) {
       expect(() => validateBaseUrl(bad), bad).toThrow(/WAFFLE_BASE_URL/);
     }
@@ -586,5 +593,58 @@ describe("safety helpers", () => {
     expect(sanitizeText("a\nb\r\nc\u0000d\u200be\u202ef\u0085g")).toBe("a b cdef g");
     expect(sanitizeText("x".repeat(300))).toHaveLength(200);
     expect(sanitizeText("x".repeat(300), 512)).toHaveLength(300);
+  });
+});
+
+describe("WriteGuard concurrency", () => {
+  const H = "h";
+  const ok = (r: ReturnType<WriteGuard["begin"]>) => {
+    if ("error" in r) throw new Error(r.error);
+    return r.settle;
+  };
+
+  it("rejected then ok on the same key stays counted", () => {
+    const g = new WriteGuard();
+    const a = ok(g.begin("k", H, 600, 1000));
+    const b = ok(g.begin("k", H, 600, 1000));
+    a("rejected");
+    b("ok");
+    expect(g.spent).toBe(600);
+    expect("error" in g.begin("k2", H, 600, 1000)).toBe(true);
+  });
+
+  it("ok then rejected stays counted", () => {
+    const g = new WriteGuard();
+    const a = ok(g.begin("k", H, 600, 1000));
+    const b = ok(g.begin("k", H, 600, 1000));
+    a("ok");
+    b("rejected");
+    expect(g.spent).toBe(600);
+  });
+
+  it("three concurrent callers: unknown among rejections stays counted once; all rejected releases", () => {
+    const g = new WriteGuard();
+    const [a, b, c] = [1, 2, 3].map(() => ok(g.begin("k", H, 600, 1000)));
+    a!("rejected");
+    c!("rejected");
+    expect(g.spent).toBe(600);
+    b!("unknown");
+    expect(g.spent).toBe(600);
+
+    const g2 = new WriteGuard();
+    const xs = [1, 2, 3].map(() => ok(g2.begin("k", H, 600, 1000)));
+    xs.forEach((x) => x("rejected"));
+    expect(g2.spent).toBe(0);
+    ok(g2.begin("k", H, 600, 1000))("ok");
+    expect(g2.spent).toBe(600);
+  });
+
+  it("bounds the key map, evicting oldest settled entries but never in-flight ones", () => {
+    const g = new WriteGuard();
+    const inflight = ok(g.begin("inflight", H, 1, Infinity));
+    for (let i = 0; i < MAX_TRACKED_KEYS + 50; i++) ok(g.begin(`key-${i}`, H, 1, Infinity))("ok");
+    expect((g as unknown as { keys: Map<string, unknown> }).keys.size).toBeLessThanOrEqual(MAX_TRACKED_KEYS + 1);
+    expect((g as unknown as { keys: Map<string, unknown> }).keys.has("inflight")).toBe(true);
+    inflight("rejected");
   });
 });
