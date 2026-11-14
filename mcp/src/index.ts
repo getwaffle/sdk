@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { createServer } from "./server.js";
+import { validateBaseUrl } from "./safety.js";
 
 const apiKey = process.env["WAFFLE_API_KEY"];
 if (!apiKey) {
@@ -11,7 +12,15 @@ if (!apiKey) {
   process.exit(1);
 }
 
-const baseUrl = process.env["WAFFLE_BASE_URL"];
+// stdout is the MCP protocol channel: everything human-readable goes to stderr, and the key is never printed.
+let baseUrl: string | undefined;
+try {
+  const rawBaseUrl = process.env["WAFFLE_BASE_URL"];
+  baseUrl = rawBaseUrl !== undefined && rawBaseUrl !== "" ? validateBaseUrl(rawBaseUrl) : undefined;
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
 
 // Built eagerly (not inside the serveStdio factory) so a bad key or an
 // unreachable API fails the process loudly at startup, before it ever
