@@ -458,7 +458,7 @@ final class MyTransport implements Transport
     }
 }
 
-$client = new Client('sk_live_...', transport: new MyTransport());
+$client = new Client('wf_live_...', transport: new MyTransport());
 ```
 
 ## Development

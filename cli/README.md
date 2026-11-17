@@ -107,8 +107,8 @@ whoami` — but not `charges create` or `payouts create` (those need the
 `*:write` scopes `read_only` doesn't grant):
 
 ```sh
-waffle --api-key sk_sandbox_readonly_xxx charges list --status paid
-waffle --api-key sk_sandbox_readonly_xxx charges create --amount 1000
+waffle --api-key wf_sandbox_xxx charges list --status paid
+waffle --api-key wf_sandbox_xxx charges create --amount 1000
 # error: HTTP 403: this API key lacks the charges:write permission
 ```
 
