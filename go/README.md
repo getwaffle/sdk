@@ -28,7 +28,7 @@ import (
 )
 
 func main() {
-	client := waffle.NewClient("sk_live_your_api_key") // default: https://api.getwaffle.id
+	client := waffle.NewClient("wf_live_your_api_key") // default: https://api.getwaffle.id
 
 	ctx := context.Background()
 	if err := client.Healthz(ctx); err != nil {
@@ -44,12 +44,12 @@ func main() {
 // The default base URL is https://api.getwaffle.id (production).
 
 // Override the underlying *http.Client (timeouts, transport, tracing, ...):
-client := waffle.NewClient("sk_live_...",
+client := waffle.NewClient("wf_live_...",
 	waffle.WithHTTPClient(&http.Client{Timeout: 10 * time.Second}),
 )
 
 // Options compose:
-client := waffle.NewClient("sk_live_...",
+client := waffle.NewClient("wf_live_...",
 	waffle.WithBaseURL("https://api.example.com"),
 	waffle.WithHTTPClient(&http.Client{Timeout: 10 * time.Second}),
 )

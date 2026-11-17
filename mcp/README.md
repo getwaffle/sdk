@@ -24,7 +24,7 @@ No global install needed; every host below launches it with `npx`.
 ### Claude Code
 
 ```sh
-claude mcp add waffle -e WAFFLE_API_KEY=sk_sandbox_your_key -- npx -y @getwaffle/mcp
+claude mcp add waffle -e WAFFLE_API_KEY=wf_sandbox_your_key -- npx -y @getwaffle/mcp
 ```
 
 ### Cursor / VS Code (`.cursor/mcp.json` / `.vscode/mcp.json`)
@@ -36,7 +36,7 @@ claude mcp add waffle -e WAFFLE_API_KEY=sk_sandbox_your_key -- npx -y @getwaffle
       "command": "npx",
       "args": ["-y", "@getwaffle/mcp"],
       "env": {
-        "WAFFLE_API_KEY": "sk_sandbox_your_key"
+        "WAFFLE_API_KEY": "wf_sandbox_your_key"
       }
     }
   }
@@ -62,7 +62,7 @@ Numeric and flag settings are validated at startup (flags accept only `1`/`0`;
 amounts must be positive safe integers); garbage makes the process exit
 instead of silently falling back to a default.
 
-**Recommendation:** start with a read-only or sandbox key (`sk_sandbox_...`,
+**Recommendation:** start with a read-only or sandbox key (`wf_sandbox_...`,
 or a `read_only` preset key) and leave `WAFFLE_MCP_ENABLE_WRITES` unset.
 Enable writes only with a sandbox key first, then enable `WAFFLE_MCP_ALLOW_LIVE`
 deliberately, with the smallest caps that fit your use case.

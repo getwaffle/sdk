@@ -11,7 +11,7 @@ npm install @getwaffle/sdk
 ```
 
 > **Warning: never put a secret key in browser code.** Keys starting with
-> `sk_live_` or `sk_test_` are server-side secrets. Do not bundle them into
+> `wf_live_` or `wf_sandbox_` are server-side secrets. Do not bundle them into
 > a web page, mobile app, or any client-side build (including `NEXT_PUBLIC_*`
 > / `VITE_*` env vars). Anyone who loads the page can read them and move
 > money from your account. Use this SDK from your backend only.
@@ -408,7 +408,7 @@ Pass `fetch` in the constructor options to use a custom implementation
 
 ```ts
 const client = new WaffleClient({
-  apiKey: "sk_live_...",
+  apiKey: "wf_live_...",
   fetch: myFetchImplementation,
 });
 ```
