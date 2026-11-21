@@ -227,6 +227,7 @@ charge, err := client.CreateCharge(ctx, waffle.CreateChargeParams{
 	Description:      "Order #1234",
 	CustomerRef:      "cust_42",
 	ReturnURL:        "https://shop.example.com/return",
+	ReturnLabel:      "Back to Example Shop", // optional, max 40 chars, needs ReturnURL
 	ExpiresInMinutes: 60,
 	Metadata:         map[string]string{"order_id": "1234"},
 }, waffle.GenerateIdempotencyKey())
@@ -239,6 +240,16 @@ fmt.Println(charge.ID, charge.Status, charge.CheckoutURL)
 Errors: `400` malformed amount/currency; `422` no gateway/fee rule for the
 auto-routed provider, zero connected PSPs, or the provider call failed;
 `429` fraud velocity limit exceeded; `403` API key lacks `charges:write`.
+
+#### Redirect after payment
+
+Pass `ReturnURL` (and optionally `ReturnLabel`, at most 40 characters, only allowed together with `ReturnURL`; otherwise the API answers `400`) to send the payer back to your site from the hosted checkout (`/pay/{id}`). Once the charge is final (paid, failed or expired) the page shows a button to that URL, labelled with your label, else "Kembali ke {merchant name}". If the charge has no return URL, the merchant's dashboard default return URL is used.
+
+- Waffle adds two query params to the link: `waffle_charge_id` (the charge id) and `waffle_status` (`paid`, `failed` or `expired`). Params with those names are replaced; your own params are kept.
+- On **live** charges only, if the page watched the charge go from pending to final, the URL is `https` and the page is not embedded, it counts down 5 seconds and redirects automatically (the payer can cancel). Sandbox charges only show the button.
+- The redirect can arrive **before** the `charge.paid` webhook. `waffle_status` is a hint for which page to show, **never proof of payment**: confirm via the webhook or by fetching the charge (`GET /v1/charges/{id}`) before fulfilling the order.
+
+The created charge echoes `ReturnURL` and `ReturnLabel` (empty when not given).
 
 ### `GetCharge` — `GET /v1/charges/{id}` (scope `charges:read`)
 

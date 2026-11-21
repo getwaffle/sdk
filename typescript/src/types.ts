@@ -73,7 +73,19 @@ export interface CreateChargeParams {
   currency: Currency;
   description?: string;
   customerRef?: string;
+  /**
+   * Where the hosted checkout's return button (and, on live charges, the
+   * automatic redirect) sends the payer once the charge is final. Waffle
+   * appends `waffle_charge_id` and `waffle_status`; treat them as a hint,
+   * never as proof of payment.
+   */
   returnUrl?: string;
+  /**
+   * Text of the hosted checkout's return button. At most 40 characters, no
+   * control characters, and only accepted together with `returnUrl`
+   * (otherwise the API answers 400). Defaults to "Kembali ke {merchant name}".
+   */
+  returnLabel?: string;
   /**
    * Selects a specific payment channel instead of the default
    * redirect-based checkout flow. Omit for the original redirect-only
@@ -115,6 +127,10 @@ export interface Charge {
   breakdown?: ChargeBreakdown | null;
   /** Echoes the request's `checkoutChannelSelection`. */
   checkoutChannelSelection?: CheckoutChannelSelection;
+  /** Echoes the request's `returnUrl`. Omitted by the server when not given. */
+  returnUrl?: string;
+  /** Echoes the request's `returnLabel`. Omitted by the server when not given. */
+  returnLabel?: string;
   /** Present only from `getCharge`/`listCharges`, once the charge has been paid. */
   paidAt?: string;
   /** Present only from `getCharge`/`listCharges`, when the charge has an expiry. */

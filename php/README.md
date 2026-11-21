@@ -261,6 +261,7 @@ $charge = $client->createCharge(
         description: 'Order #42',
         customerRef: 'cust-42',
         returnUrl: 'https://shop.example/return',
+        returnLabel: 'Back to Example Shop', // optional, max 40 chars, needs returnUrl
         expiresInMinutes: 60,
         metadata: ['orderId' => '42'],
         // channel: 'qris',                          // or 'virtual_account' + vaBank
@@ -273,6 +274,16 @@ $charge = $client->createCharge(
 // $charge->checkoutUrl, $charge->grossAmount, $charge->feeAmount, $charge->netAmount,
 // $charge->breakdown (Dto\ChargeBreakdown|null — base/fee/bearer/payer_paid/merchant_receives), ...
 ```
+
+#### Redirect after payment
+
+Pass `returnUrl` (and optionally `returnLabel`, at most 40 characters, only allowed together with `returnUrl`; otherwise the API answers `400`) to send the payer back to your site from the hosted checkout (`/pay/{id}`). Once the charge is final (paid, failed or expired) the page shows a button to that URL, labelled with your label, else "Kembali ke {merchant name}". If the charge has no return URL, the merchant's dashboard default return URL is used.
+
+- Waffle adds two query params to the link: `waffle_charge_id` (the charge id) and `waffle_status` (`paid`, `failed` or `expired`). Params with those names are replaced; your own params are kept.
+- On **live** charges only, if the page watched the charge go from pending to final, the URL is `https` and the page is not embedded, it counts down 5 seconds and redirects automatically (the payer can cancel). Sandbox charges only show the button.
+- The redirect can arrive **before** the `charge.paid` webhook. `waffle_status` is a hint for which page to show, **never proof of payment**: confirm via the webhook or by fetching the charge (`GET /v1/charges/{id}`) before fulfilling the order.
+
+The charge echoes `$charge->returnUrl` and `$charge->returnLabel` (null when not given).
 
 ### `getCharge(string $id): Charge`
 

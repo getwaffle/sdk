@@ -29,6 +29,10 @@ final class Charge implements \JsonSerializable
      *   still payable
      * @param string|null $settledAt present once the net amount becomes
      *   withdrawable
+     * @param string|null $returnUrl echoes the request's `returnUrl`;
+     *   null when not given
+     * @param string|null $returnLabel echoes the request's `returnLabel`;
+     *   null when not given
      */
     public function __construct(
         public readonly string $id,
@@ -50,6 +54,8 @@ final class Charge implements \JsonSerializable
         public readonly ?string $paidAt = null,
         public readonly ?string $expiresAt = null,
         public readonly ?string $settledAt = null,
+        public readonly ?string $returnUrl = null,
+        public readonly ?string $returnLabel = null,
     ) {
     }
 
@@ -80,6 +86,8 @@ final class Charge implements \JsonSerializable
             paidAt: isset($data['paid_at']) ? (string) $data['paid_at'] : null,
             expiresAt: isset($data['expires_at']) ? (string) $data['expires_at'] : null,
             settledAt: isset($data['settled_at']) ? (string) $data['settled_at'] : null,
+            returnUrl: isset($data['return_url']) ? (string) $data['return_url'] : null,
+            returnLabel: isset($data['return_label']) ? (string) $data['return_label'] : null,
         );
     }
 
@@ -106,6 +114,8 @@ final class Charge implements \JsonSerializable
             'paid_at' => $this->paidAt,
             'expires_at' => $this->expiresAt,
             'settled_at' => $this->settledAt,
+            'return_url' => $this->returnUrl,
+            'return_label' => $this->returnLabel,
         ];
     }
 }

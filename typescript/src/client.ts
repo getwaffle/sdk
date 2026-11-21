@@ -142,6 +142,8 @@ interface RawChargeResponse {
   metadata?: Record<string, string>;
   breakdown?: RawChargeBreakdown | null;
   checkout_channel_selection?: "merchant" | "payer";
+  return_url?: string;
+  return_label?: string;
   paid_at?: string;
   expires_at?: string;
   settled_at?: string;
@@ -254,6 +256,8 @@ function mapCharge(raw: RawChargeResponse): Charge {
     ...(raw.checkout_channel_selection !== undefined
       ? { checkoutChannelSelection: raw.checkout_channel_selection }
       : {}),
+    ...(raw.return_url !== undefined ? { returnUrl: raw.return_url } : {}),
+    ...(raw.return_label !== undefined ? { returnLabel: raw.return_label } : {}),
     ...(raw.paid_at !== undefined ? { paidAt: raw.paid_at } : {}),
     ...(raw.expires_at !== undefined ? { expiresAt: raw.expires_at } : {}),
     ...(raw.settled_at !== undefined ? { settledAt: raw.settled_at } : {}),
@@ -349,6 +353,7 @@ export class WaffleClient {
     if (params.description !== undefined) body["description"] = params.description;
     if (params.customerRef !== undefined) body["customer_ref"] = params.customerRef;
     if (params.returnUrl !== undefined) body["return_url"] = params.returnUrl;
+    if (params.returnLabel !== undefined) body["return_label"] = params.returnLabel;
     if (params.channel !== undefined) body["channel"] = params.channel;
     if (params.vaBank !== undefined) body["va_bank"] = params.vaBank;
     if (params.expiresInMinutes !== undefined) {

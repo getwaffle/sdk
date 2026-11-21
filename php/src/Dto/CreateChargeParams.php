@@ -33,6 +33,9 @@ final class CreateChargeParams implements \JsonSerializable
      * @param array<string,string>|null $metadata
      * @param string|null $checkoutChannelSelection `"merchant"` (default)
      *   or `"payer"`
+     * @param string|null $returnLabel text of the hosted checkout's return
+     *   button; at most 40 characters, no control characters, and only
+     *   accepted together with `$returnUrl` (otherwise the API answers 400)
      */
     public function __construct(
         public readonly int $amount,
@@ -45,6 +48,7 @@ final class CreateChargeParams implements \JsonSerializable
         public readonly ?string $channel = null,
         public readonly ?string $vaBank = null,
         public readonly ?string $checkoutChannelSelection = null,
+        public readonly ?string $returnLabel = null,
     ) {
     }
 
@@ -63,6 +67,9 @@ final class CreateChargeParams implements \JsonSerializable
         }
         if ($this->returnUrl !== null) {
             $body['return_url'] = $this->returnUrl;
+        }
+        if ($this->returnLabel !== null) {
+            $body['return_label'] = $this->returnLabel;
         }
         if ($this->expiresInMinutes !== null) {
             $body['expires_in_minutes'] = $this->expiresInMinutes;
