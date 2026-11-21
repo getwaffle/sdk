@@ -15,5 +15,6 @@
 - `verifyWebhook` throws `TypeError` (fail closed) unless `toleranceSeconds` is a finite number >= 0 and `now()` returns a finite number; previously `NaN` silently disabled the timestamp check.
 
 ### Added
+- `createCharge` accepts `returnLabel` (text of the hosted checkout's return button, max 40 characters, only with `returnUrl`); `Charge` now carries the echoed `returnUrl` and `returnLabel` (omitted when not given). README: "Redirect after payment".
 - Exports: `WaffleTimeoutError`, `WaffleResponseTooLargeError`, `WaffleValidationError`, `validateIdempotencyKey`, `normalizeBaseUrl`, `DEFAULT_TIMEOUT_MS`.
 - README: warning against bundling secret keys in browser code; documentation of the options above.

@@ -154,7 +154,7 @@ waffle banks list                                      # public bank directory, 
 waffle charges create --amount 50000 [--currency IDR]  # scope charges:write
     [--channel qris|virtual_account] [--va-bank BCA]
     [--checkout-channel-selection merchant|payer]
-    [--description ...] [--customer-ref ...] [--return-url ...]
+    [--description ...] [--customer-ref ...] [--return-url ...] [--return-label ...]
     [--expires-in-minutes 60] [--metadata k=v ...]
     [--idempotency-key ...]                               # auto-generated when omitted
 waffle charges calculate-fee --amount 100000 [--channel ...] [--va-bank ...]  # scope charges:read

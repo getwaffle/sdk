@@ -550,8 +550,14 @@ export async function createServer(options: WaffleMcpServerOptions): Promise<Mcp
           description: z.string().max(500).optional(),
           customerRef: z.string().max(100).optional().describe("Caller-defined reference to the paying customer, for the caller's own bookkeeping"),
           returnUrl: returnUrlSchema.optional().describe(
-            `Where the payer's browser returns after a redirect-flow checkout. Must be https, no credentials${config.returnUrlAllowlist ? `; host must be one of: ${config.returnUrlAllowlist.join(", ")}` : ""}.`,
+            `Where Waffle's hosted checkout (/pay/{id}) sends the payer once the charge is paid, failed or expired: a button to this URL with waffle_charge_id and waffle_status added (a hint only, never proof of payment), and on live charges a cancellable 5 second automatic redirect when the host is on the merchant's own domain. Must be https, no credentials${config.returnUrlAllowlist ? `; host must be one of: ${config.returnUrlAllowlist.join(", ")}` : ""}.`,
           ),
+          returnLabel: z
+            .string()
+            .max(40)
+            .regex(/^[^\p{Cc}\p{Cf}]*$/u, "returnLabel must not contain control characters")
+            .optional()
+            .describe('Text of the checkout page\'s return button (<= 40 chars). Requires returnUrl. Defaults to "Kembali ke {merchant name}".'),
           channel: channelSchema.optional().describe(
             'Selects a specific in-app payment method instead of the default redirect checkout. Requires vaBank when set to "virtual_account". Omit for the default redirect checkoutUrl flow.',
           ),
@@ -574,6 +580,9 @@ export async function createServer(options: WaffleMcpServerOptions): Promise<Mcp
         if (params.amount > config.maxAmount) {
           return refusalResult(`Refused: amount ${params.amount} exceeds the per-call limit WAFFLE_MCP_MAX_AMOUNT (${config.maxAmount}).`);
         }
+        if (params.returnLabel !== undefined && params.returnUrl === undefined) {
+          return refusalResult("Refused: returnLabel requires returnUrl.");
+        }
         if (params.channel === "virtual_account" && params.vaBank === undefined) {
           return refusalResult('Refused: vaBank is required when channel is "virtual_account".');
         }
@@ -587,6 +596,7 @@ export async function createServer(options: WaffleMcpServerOptions): Promise<Mcp
             ...(params.description !== undefined ? { description: params.description } : {}),
             ...(params.customerRef !== undefined ? { customerRef: params.customerRef } : {}),
             ...(params.returnUrl !== undefined ? { returnUrl: new URL(params.returnUrl).href } : {}),
+            ...(params.returnLabel !== undefined ? { returnLabel: params.returnLabel.trim() } : {}),
             ...(params.channel !== undefined ? { channel: params.channel } : {}),
             ...(params.vaBank !== undefined ? { vaBank: params.vaBank } : {}),
             ...(params.expiresInMinutes !== undefined ? { expiresInMinutes: params.expiresInMinutes } : {}),

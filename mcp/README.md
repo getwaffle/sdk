@@ -126,7 +126,7 @@ descriptions state the key's mode (`LIVE` / `SANDBOX`) and the active limits.
 
 Input validation: `currency` is 3 uppercase letters; `amount` a positive safe
 integer; `returnUrl` must be `https` without credentials, whitespace, control characters or backslashes (and on the allowlist
-if configured), and is sent in its parsed form; `description` <= 500, `customerRef` <= 100 characters;
+if configured), and is sent in its parsed form; `returnLabel` <= 40 characters without control characters and requires `returnUrl`; `description` <= 500, `customerRef` <= 100 characters;
 `metadata` at most 20 keys (key <= 40, value <= 200 characters); ids, cursors
 and dates are checked by format.
 

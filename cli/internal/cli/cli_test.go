@@ -247,6 +247,26 @@ func TestChargesCreateIdempotencyAndBody(t *testing.T) {
 	}
 }
 
+func TestChargesCreateReturnLabelFlag(t *testing.T) {
+	withConfig(t)
+	var rec recorder
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.record(r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"chg_1","mode":"sandbox","status":"pending","gross_amount":1000,"fee_amount":0,"net_amount":1000,"currency":"IDR","created_at":"2026-09-08T01:00:00Z"}`))
+	}))
+	defer srv.Close()
+	t.Setenv("WAFFLE_API_KEY", "sk_test_env")
+
+	if _, err := runCLI(t, "charges", "create", "--amount", "1000", "--return-url", "https://shop.example/return", "--return-label", "Back to shop", "--base-url", srv.URL); err != nil {
+		t.Fatalf("charges create: %v", err)
+	}
+	if got := rec.bodies[0]["return_label"]; got != "Back to shop" {
+		t.Errorf("return_label = %v, want Back to shop", got)
+	}
+}
+
 func TestChargesCreateRejectsVAWithoutBank(t *testing.T) {
 	withConfig(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -87,6 +87,59 @@ describe("WaffleClient", () => {
     });
   });
 
+  it("sends returnUrl and returnLabel and maps the echoed fields", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, {
+        id: "charge-r",
+        mode: "sandbox",
+        status: "pending",
+        gross_amount: 1000,
+        fee_amount: 0,
+        net_amount: 1000,
+        currency: "IDR",
+        created_at: "2026-09-08T01:00:00Z",
+        return_url: "https://shop.example/return",
+        return_label: "Back to shop",
+      }),
+    );
+    const charge = await client.createCharge(
+      {
+        amount: 1000,
+        currency: "IDR",
+        returnUrl: "https://shop.example/return",
+        returnLabel: "Back to shop",
+      },
+      "idem-key-ret",
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      amount: 1000,
+      currency: "IDR",
+      return_url: "https://shop.example/return",
+      return_label: "Back to shop",
+    });
+    expect(charge.returnUrl).toBe("https://shop.example/return");
+    expect(charge.returnLabel).toBe("Back to shop");
+  });
+
+  it("omits returnUrl/returnLabel on the charge when the server does not echo them", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, {
+        id: "charge-n",
+        mode: "sandbox",
+        status: "pending",
+        gross_amount: 1000,
+        fee_amount: 0,
+        net_amount: 1000,
+        currency: "IDR",
+        created_at: "2026-09-08T01:00:00Z",
+      }),
+    );
+    const charge = await client.createCharge({ amount: 1000, currency: "IDR" }, "idem-key-nr");
+    expect(charge).not.toHaveProperty("returnUrl");
+    expect(charge).not.toHaveProperty("returnLabel");
+  });
+
   it("does not require or send a provider field in the createCharge body", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(201, {

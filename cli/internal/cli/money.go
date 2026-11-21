@@ -235,6 +235,7 @@ func newChargesCreateCmd() *cobra.Command {
 		checkoutSelection string
 		customer          string
 		returnURL         string
+		returnLabel       string
 		expiresMin        int
 		metadata          []string
 		idemKey           string
@@ -298,6 +299,7 @@ or one is generated for this invocation.`,
 				Description:              desc,
 				CustomerRef:              customer,
 				ReturnURL:                returnURL,
+				ReturnLabel:              returnLabel,
 				Channel:                  channel,
 				VABank:                   vaBank,
 				ExpiresInMinutes:         expiresMin,
@@ -338,6 +340,7 @@ or one is generated for this invocation.`,
 	cmd.Flags().StringVar(&checkoutSelection, "checkout-channel-selection", "", "merchant | payer (empty = merchant, the default)")
 	cmd.Flags().StringVar(&customer, "customer-ref", "", "your customer reference")
 	cmd.Flags().StringVar(&returnURL, "return-url", "", "URL the payer returns to after checkout")
+	cmd.Flags().StringVar(&returnLabel, "return-label", "", "text of the checkout return button (max 40 chars; requires --return-url)")
 	cmd.Flags().IntVar(&expiresMin, "expires-in-minutes", 0, "charge expiry in minutes")
 	cmd.Flags().StringArrayVar(&metadata, "metadata", nil, "metadata as key=value (repeatable)")
 	cmd.Flags().StringVar(&idemKey, "idempotency-key", "", "reuse across retries to guarantee a single charge (auto-generated when omitted)")

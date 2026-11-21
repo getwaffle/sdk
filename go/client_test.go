@@ -825,3 +825,35 @@ func TestWhoAmI(t *testing.T) {
 		t.Errorf("who = %+v", who)
 	}
 }
+
+func TestCreateChargeReturnLabel(t *testing.T) {
+	var gotBody map[string]any
+	c, _ := newTestClient(t, "sk_test_123", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"chg_1","mode":"sandbox","status":"pending","gross_amount":1000,"fee_amount":0,"net_amount":1000,"currency":"IDR","created_at":"2026-09-08T01:00:00Z","return_url":"https://shop.example/return","return_label":"Back to shop"}`))
+	})
+	charge, err := c.CreateCharge(context.Background(), CreateChargeParams{
+		Amount: 1000, Currency: "IDR",
+		ReturnURL: "https://shop.example/return", ReturnLabel: "Back to shop",
+	}, "idem-ret")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["return_url"] != "https://shop.example/return" || gotBody["return_label"] != "Back to shop" {
+		t.Errorf("body = %v, want return_url and return_label", gotBody)
+	}
+	if charge.ReturnURL != "https://shop.example/return" || charge.ReturnLabel != "Back to shop" {
+		t.Errorf("charge return fields = %q / %q", charge.ReturnURL, charge.ReturnLabel)
+	}
+
+	// omitted when empty
+	gotBody = nil
+	if _, err := c.CreateCharge(context.Background(), CreateChargeParams{Amount: 1000, Currency: "IDR"}, "idem-ret-2"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := gotBody["return_label"]; ok {
+		t.Errorf("return_label must be omitted when empty, got %v", gotBody)
+	}
+}

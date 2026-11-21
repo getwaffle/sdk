@@ -523,7 +523,16 @@ type CreateChargeParams struct {
 	Currency    string `json:"currency"`
 	Description string `json:"description,omitempty"`
 	CustomerRef string `json:"customer_ref,omitempty"`
-	ReturnURL   string `json:"return_url,omitempty"`
+	// ReturnURL is where the hosted checkout's return button (and, on
+	// live charges, the automatic redirect) sends the payer once the
+	// charge is final. Waffle appends waffle_charge_id and waffle_status
+	// to it; treat those as a hint only, never as proof of payment.
+	ReturnURL string `json:"return_url,omitempty"`
+	// ReturnLabel is the text of the hosted checkout's return button.
+	// Optional, at most 40 characters, no control characters, and only
+	// accepted together with ReturnURL (otherwise the API answers 400).
+	// Defaults to "Kembali ke {merchant name}".
+	ReturnLabel string `json:"return_label,omitempty"`
 	// Channel selects a specific payment channel instead of the default
 	// redirect-based checkout flow. Accepted values are "qris" and
 	// "virtual_account"; leave it as the empty string for the original
@@ -570,6 +579,10 @@ type Charge struct {
 	// CheckoutChannelSelection echoes the request's field; see
 	// CreateChargeParams.CheckoutChannelSelection.
 	CheckoutChannelSelection string `json:"checkout_channel_selection,omitempty"`
+	// ReturnURL and ReturnLabel echo the request's fields; empty when
+	// they were not given.
+	ReturnURL   string `json:"return_url,omitempty"`
+	ReturnLabel string `json:"return_label,omitempty"`
 	// Breakdown is the fee/settlement breakdown for this charge. It is
 	// nil for an unpriced "payer"-channel-selection charge that hasn't
 	// had a channel picked yet.

@@ -85,6 +85,44 @@ final class ClientTest extends TestCase
         self::assertIsInt($charge->grossAmount);
     }
 
+    public function testCreateChargeSendsReturnLabelAndMapsEchoedFields(): void
+    {
+        $responseBody = json_encode([
+            'id' => 'charge-r',
+            'mode' => 'sandbox',
+            'status' => 'pending',
+            'gross_amount' => 1000,
+            'fee_amount' => 0,
+            'net_amount' => 1000,
+            'currency' => 'IDR',
+            'created_at' => '2026-09-08T01:00:00Z',
+            'return_url' => 'https://shop.example/return',
+            'return_label' => 'Back to shop',
+        ], JSON_THROW_ON_ERROR);
+        $transport = new FakeTransport(new TransportResponse(201, $responseBody));
+        $client = new Client(self::API_KEY, self::BASE_URL, $transport);
+
+        $charge = $client->createCharge(
+            new CreateChargeParams(
+                amount: 1000,
+                currency: 'IDR',
+                returnUrl: 'https://shop.example/return',
+                returnLabel: 'Back to shop',
+            ),
+            'idem-key-ret',
+        );
+
+        $sentBody = json_decode((string) $transport->lastBody, true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame([
+            'amount' => 1000,
+            'currency' => 'IDR',
+            'return_url' => 'https://shop.example/return',
+            'return_label' => 'Back to shop',
+        ], $sentBody);
+        self::assertSame('https://shop.example/return', $charge->returnUrl);
+        self::assertSame('Back to shop', $charge->returnLabel);
+    }
+
     public function testCreateChargeSendsMinimalRequest(): void
     {
         $responseBody = json_encode([

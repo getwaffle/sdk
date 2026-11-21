@@ -523,6 +523,27 @@ describe("waffle MCP server", () => {
     expect((await open.client.callTool({ name: "waffle_create_charge", arguments: chargeArgs({ idempotencyKey: "ret-url-http", returnUrl: "http://anything.example/x" }) })).isError).toBe(true);
   });
 
+  it("passes returnLabel through and requires returnUrl", async () => {
+    const { client, mockNext, toolCalls } = await connect(FULL_SCOPES, "sandbox", { WAFFLE_MCP_ENABLE_WRITES: "1" });
+    for (const [i, extra] of [
+      { returnLabel: "Back" },
+      { returnUrl: "https://shop.example.com/x", returnLabel: "x".repeat(41) },
+      { returnUrl: "https://shop.example.com/x", returnLabel: "bad\nlabel" },
+    ].entries()) {
+      const r = await client.callTool({ name: "waffle_create_charge", arguments: chargeArgs({ idempotencyKey: `ret-label-bad-${i}`, ...extra }) });
+      expect(r.isError).toBe(true);
+    }
+    expect(toolCalls()).toHaveLength(0);
+    mockNext(jsonResponse(201, CHARGE_BODY));
+    const ok = await client.callTool({
+      name: "waffle_create_charge",
+      arguments: chargeArgs({ returnUrl: "https://shop.example.com/x", returnLabel: "Back to shop" }),
+    });
+    expect(ok.isError).toBeFalsy();
+    const [, init] = toolCalls()[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ return_url: "https://shop.example.com/x", return_label: "Back to shop" });
+  });
+
   it("validates currency, metadata, dates and cursors", async () => {
     const { client, toolCalls } = await connect(FULL_SCOPES);
     const tooMany = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`k${i}`, "v"]));
