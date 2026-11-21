@@ -550,7 +550,7 @@ export async function createServer(options: WaffleMcpServerOptions): Promise<Mcp
           description: z.string().max(500).optional(),
           customerRef: z.string().max(100).optional().describe("Caller-defined reference to the paying customer, for the caller's own bookkeeping"),
           returnUrl: returnUrlSchema.optional().describe(
-            `Where the payer's browser returns after a redirect-flow checkout. Must be https, no credentials${config.returnUrlAllowlist ? `; host must be one of: ${config.returnUrlAllowlist.join(", ")}` : ""}.`,
+            `Where Waffle's hosted checkout (/pay/{id}) sends the payer once the charge is paid, failed or expired: a button to this URL with waffle_charge_id and waffle_status added (a hint only, never proof of payment), and on live charges a cancellable 5 second automatic redirect when the host is on the merchant's own domain. Must be https, no credentials${config.returnUrlAllowlist ? `; host must be one of: ${config.returnUrlAllowlist.join(", ")}` : ""}.`,
           ),
           returnLabel: z
             .string()
