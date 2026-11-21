@@ -246,7 +246,7 @@ auto-routed provider, zero connected PSPs, or the provider call failed;
 Pass `ReturnURL` (and optionally `ReturnLabel`, at most 40 characters, only allowed together with `ReturnURL`; otherwise the API answers `400`) to send the payer back to your site from the hosted checkout (`/pay/{id}`). Once the charge is final (paid, failed or expired) the page shows a button to that URL, labelled with your label, else "Kembali ke {merchant name}". If the charge has no return URL, the merchant's dashboard default return URL is used.
 
 - Waffle adds two query params to the link: `waffle_charge_id` (the charge id) and `waffle_status` (`paid`, `failed` or `expired`). Params with those names are replaced; your own params are kept.
-- On **live** charges only, if the page watched the charge go from pending to final, the URL is `https` and the page is not embedded, it counts down 5 seconds and redirects automatically (the payer can cancel). Sandbox charges only show the button.
+- On **live** charges only, if the page watched the charge go from pending to final, the URL is `https` on your own domain (the same registrable domain as the website in your Waffle business profile, or as your dashboard default return URL) and the page is not embedded, it counts down 5 seconds and redirects automatically (the payer can cancel). Sandbox charges only show the button.
 - The redirect can arrive **before** the `charge.paid` webhook. `waffle_status` is a hint for which page to show, **never proof of payment**: confirm via the webhook or by fetching the charge (`GET /v1/charges/{id}`) before fulfilling the order.
 
 The created charge echoes `ReturnURL` and `ReturnLabel` (empty when not given).
