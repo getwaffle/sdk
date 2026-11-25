@@ -1,0 +1,44 @@
+name: release-woocommerce
+
+# Pushing a tag woocommerce/vX.Y.Z publishes waffle-woocommerce.zip, the file a
+# merchant uploads in WordPress. The tag must match the plugin header and
+# readme.txt. GitHub releases only; WordPress.org is a separate, manual step.
+
+on:
+  push:
+    tags:
+      - "woocommerce/v*"
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Check version
+        working-directory: woocommerce
+        run: |
+          if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^woocommerce/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$GITHUB_REF_NAME' is not woocommerce/vX.Y.Z"
+            exit 1
+          fi
+          v="${GITHUB_REF_NAME#woocommerce/v}"
+          grep -qxF " * Version: $v" waffle-woocommerce.php
+          grep -qF "'WAFFLE_WC_VERSION', '$v'" waffle-woocommerce.php
+          grep -qxF "Stable tag: $v" readme.txt
+      - name: Lint
+        run: find woocommerce -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Build zip
+        run: |
+          mkdir -p build/waffle-woocommerce
+          cp -R woocommerce/waffle-woocommerce.php woocommerce/includes woocommerce/assets woocommerce/readme.txt woocommerce/LICENSE build/waffle-woocommerce/
+          (cd build && zip -qr ../waffle-woocommerce.zip waffle-woocommerce)
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" waffle-woocommerce.zip --prerelease --latest=false --title "WooCommerce ${GITHUB_REF_NAME#woocommerce/}" --notes "Beta. Unggah waffle-woocommerce.zip di WordPress, Plugin, Tambah Baru."

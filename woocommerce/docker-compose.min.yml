@@ -1,0 +1,22 @@
+# Oldest supported stack, same port as docker-compose.yml: run one at a time.
+name: waffle-woo-min
+services:
+  db:
+    image: mariadb:10.6
+    environment: { MARIADB_DATABASE: wp, MARIADB_USER: wp, MARIADB_PASSWORD: wp, MARIADB_RANDOM_ROOT_PASSWORD: "1" }
+  wp: &wp
+    build: tests/min
+    depends_on: [db]
+    ports: ["127.0.0.1:8899:80"]
+    volumes:
+      - wp:/var/www/html
+      - .:/var/www/html/wp-content/plugins/waffle-woocommerce:ro
+      - ./tests/local-api.php:/var/www/html/wp-content/mu-plugins/local-api.php:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  cli:
+    <<: *wp
+    ports: []
+    profiles: [cli]
+    user: "33:33"
+    environment: { WP_CLI_PHP_ARGS: "-d memory_limit=512M" }
+volumes: { wp: {} }

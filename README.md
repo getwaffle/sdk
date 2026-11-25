@@ -17,6 +17,7 @@ backend repo.
 | PHP | [`waffle/sdk`](https://packagist.org/packages/waffle/sdk) | [`php/`](php/) |
 | MCP server | [`@getwaffle/mcp`](https://www.npmjs.com/package/@getwaffle/mcp) | [`mcp/`](mcp/) |
 | CLI | `github.com/getwaffle/sdk/cli` | [`cli/`](cli/) |
+| WooCommerce plugin (beta) | `waffle-woocommerce` | [`woocommerce/`](woocommerce/) (GPL-2.0-or-later) |
 
 Each subdirectory is independently versioned/published — see its own
 README for install and usage instructions. API reference:
