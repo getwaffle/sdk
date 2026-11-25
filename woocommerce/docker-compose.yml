@@ -1,0 +1,24 @@
+# Local WordPress + WooCommerce for tests/e2e.sh. Dev only.
+services:
+  db:
+    image: mariadb:11
+    environment: { MARIADB_DATABASE: wp, MARIADB_USER: wp, MARIADB_PASSWORD: wp, MARIADB_RANDOM_ROOT_PASSWORD: "1" }
+  wp:
+    image: wordpress:6.8-php8.2-apache
+    depends_on: [db]
+    ports: ["127.0.0.1:8899:80"]
+    environment: &env { WORDPRESS_DB_HOST: db, WORDPRESS_DB_USER: wp, WORDPRESS_DB_PASSWORD: wp, WORDPRESS_DB_NAME: wp }
+    volumes: &vol
+      - wp:/var/www/html
+      - .:/var/www/html/wp-content/plugins/waffle-woocommerce:ro
+      - ./tests/local-api.php:/var/www/html/wp-content/mu-plugins/local-api.php:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  cli:
+    image: wordpress:cli-php8.2
+    profiles: [cli]
+    user: "33:33"
+    depends_on: [db, wp]
+    environment: *env
+    volumes: *vol
+    extra_hosts: ["host.docker.internal:host-gateway"]
+volumes: { wp: {} }
